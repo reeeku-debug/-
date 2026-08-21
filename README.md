@@ -7,21 +7,26 @@
 ## 技術スタック
 
 - Next.js 14 (App Router) + TypeScript
-- Prisma + SQLite（`DATABASE_URL` を変更すれば PostgreSQL 等にも移行可能）
+- Prisma + PostgreSQL
 - NextAuth.js（Credentials Provider、JWTセッション、回答者/管理者の2ロール）
 - Tailwind CSS
 
 ## セットアップ
 
+PostgreSQLが必要です（ローカルにインストール済み、またはDocker、あるいは
+Neon/Supabase等の無料枠でも構いません）。
+
 ```bash
 npm install
-cp .env.example .env   # 必要に応じて値を編集
+cp .env.example .env   # DATABASE_URL 等を自分のPostgreSQL接続情報に書き換える
 npx prisma migrate dev --name init
 npm run seed            # 管理者アカウント + サンプル回答者4名 + サンプル案件1件を投入
 npm run dev
 ```
 
 http://localhost:3000 を開いてください。
+
+本番環境（Vercel等）へのデプロイ手順は [DEPLOY.md](./DEPLOY.md) を参照してください。
 
 ### シードで作成されるアカウント
 
