@@ -6,8 +6,12 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon等のプール接続(pgbouncer)はマイグレーション実行に必要な
+  // アドバイザリーロックをサポートしないため、マイグレーション専用に
+  // 直接接続を使う。Vercel+Neon連携では自動的に用意される変数。
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 // role: "RESPONDENT" | "ADMIN"
