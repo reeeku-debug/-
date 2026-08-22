@@ -42,6 +42,10 @@ model Profile {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  gender        String? // 性別
+  age           Int? // 年齢
+  residenceArea String? // 住んでいる地域（都道府県）
+
   finalDream   String? // 最終的な夢
   halfYearGoal String? // 半年後の目標
 

@@ -27,6 +27,9 @@ export default async function FormPage() {
   const initialData: TalentFormData = {
     realName: user.realName ?? "",
     stageName: user.stageName ?? "",
+    gender: user.profile?.gender ?? "",
+    age: user.profile?.age != null ? String(user.profile.age) : "",
+    residenceArea: user.profile?.residenceArea ?? "",
     achievements:
       user.achievements.length > 0
         ? user.achievements.map((a) => ({

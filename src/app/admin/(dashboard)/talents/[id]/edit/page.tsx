@@ -23,6 +23,9 @@ export default async function TalentEditPage({ params }: { params: { id: string 
   const initialData: TalentFormData = {
     realName: talent.realName ?? "",
     stageName: talent.stageName ?? "",
+    gender: talent.profile?.gender ?? "",
+    age: talent.profile?.age != null ? String(talent.profile.age) : "",
+    residenceArea: talent.profile?.residenceArea ?? "",
     achievements:
       talent.achievements.length > 0
         ? talent.achievements.map((a) => ({

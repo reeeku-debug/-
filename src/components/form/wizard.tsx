@@ -7,7 +7,15 @@ import ProgressBar from "@/components/form/progress-bar";
 import TagInput from "@/components/form/tag-input";
 import AchievementsEditor from "@/components/form/achievements-editor";
 import SocialEditor from "@/components/form/social-editor";
-import { HOBBY_OPTIONS, SKILL_OPTIONS, DESIRED_WORK_OPTIONS, SOCIAL_PLATFORMS } from "@/lib/constants";
+import {
+  HOBBY_OPTIONS,
+  SKILL_OPTIONS,
+  DESIRED_WORK_OPTIONS,
+  SOCIAL_PLATFORMS,
+  GENDER_OPTIONS,
+  PREFECTURE_OPTIONS,
+} from "@/lib/constants";
+import { cn } from "@/lib/utils";
 import type { TalentFormData } from "@/lib/types";
 import { saveTalentProfile } from "@/app/form/actions";
 
@@ -151,8 +159,50 @@ export default function Wizard({
               className="field-input"
               value={data.stageName}
               onChange={(e) => patch({ stageName: e.target.value })}
-              placeholder="例：酒月みるね"
+              placeholder="例：大内りくう"
             />
+          </div>
+          <div>
+            <label className="field-label">性別</label>
+            <div className="flex flex-wrap gap-2">
+              {GENDER_OPTIONS.map((option) => (
+                <button
+                  type="button"
+                  key={option}
+                  onClick={() => patch({ gender: option })}
+                  className={cn("chip", data.gender === option ? "chip-selected" : "chip-unselected")}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="field-label">年齢</label>
+            <input
+              className="field-input"
+              type="number"
+              min={0}
+              inputMode="numeric"
+              value={data.age}
+              onChange={(e) => patch({ age: e.target.value })}
+              placeholder="例：22"
+            />
+          </div>
+          <div>
+            <label className="field-label">住んでいる地域</label>
+            <select
+              className="field-input"
+              value={data.residenceArea}
+              onChange={(e) => patch({ residenceArea: e.target.value })}
+            >
+              <option value="">選択してください</option>
+              {PREFECTURE_OPTIONS.map((pref) => (
+                <option key={pref} value={pref}>
+                  {pref}
+                </option>
+              ))}
+            </select>
           </div>
         </section>
       )}
@@ -305,6 +355,9 @@ function ReviewStep({ data, onEdit }: { data: TalentFormData; onEdit: (step: num
       <ReviewBlock title="基本情報" onEdit={() => onEdit(1)}>
         <p>本名：{data.realName || "未入力"}</p>
         <p>芸名・活動名：{data.stageName || "未入力"}</p>
+        <p>性別：{data.gender || "未入力"}</p>
+        <p>年齢：{data.age || "未入力"}</p>
+        <p>住んでいる地域：{data.residenceArea || "未入力"}</p>
       </ReviewBlock>
 
       <ReviewBlock title="実績・経験" onEdit={() => onEdit(2)}>

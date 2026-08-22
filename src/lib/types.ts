@@ -14,6 +14,9 @@ export interface SocialInput {
 export interface TalentFormData {
   realName: string;
   stageName: string;
+  gender: string;
+  age: string;
+  residenceArea: string;
   achievements: AchievementInput[];
   hobbies: string[];
   skills: string[];
@@ -37,6 +40,9 @@ export function emptyTalentFormData(): TalentFormData {
   return {
     realName: "",
     stageName: "",
+    gender: "",
+    age: "",
+    residenceArea: "",
     achievements: [{ content: "", category: "", yearMonth: "" }],
     hobbies: [],
     skills: [],

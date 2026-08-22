@@ -37,14 +37,22 @@ export async function adminUpdateTalent(userId: string, data: TalentFormData) {
     },
   });
 
+  const age = data.age.trim() ? Number.parseInt(data.age, 10) : null;
+
   await prisma.profile.upsert({
     where: { userId },
     update: {
+      gender: data.gender.trim() || null,
+      age: age && !Number.isNaN(age) ? age : null,
+      residenceArea: data.residenceArea.trim() || null,
       finalDream: data.finalDream.trim() || null,
       halfYearGoal: data.halfYearGoal.trim() || null,
     },
     create: {
       userId,
+      gender: data.gender.trim() || null,
+      age: age && !Number.isNaN(age) ? age : null,
+      residenceArea: data.residenceArea.trim() || null,
       finalDream: data.finalDream.trim() || null,
       halfYearGoal: data.halfYearGoal.trim() || null,
       isDraft: false,

@@ -59,7 +59,7 @@ export default function RegisterPage() {
               className="field-input"
               value={stageName}
               onChange={(e) => setStageName(e.target.value)}
-              placeholder="例：酒月みるね"
+              placeholder="例：大内りくう"
             />
           </div>
           <div>

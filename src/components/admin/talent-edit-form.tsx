@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import TagInput from "@/components/form/tag-input";
 import AchievementsEditor from "@/components/form/achievements-editor";
 import SocialEditor from "@/components/form/social-editor";
-import { HOBBY_OPTIONS, SKILL_OPTIONS, DESIRED_WORK_OPTIONS } from "@/lib/constants";
+import { HOBBY_OPTIONS, SKILL_OPTIONS, DESIRED_WORK_OPTIONS, GENDER_OPTIONS, PREFECTURE_OPTIONS } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 import type { TalentFormData } from "@/lib/types";
 import { adminUpdateTalent } from "@/app/admin/(dashboard)/talents/[id]/actions";
 
@@ -51,6 +52,46 @@ export default function TalentEditForm({
               value={data.stageName}
               onChange={(e) => patch({ stageName: e.target.value })}
             />
+          </div>
+          <div>
+            <label className="field-label">性別</label>
+            <div className="flex flex-wrap gap-2">
+              {GENDER_OPTIONS.map((option) => (
+                <button
+                  type="button"
+                  key={option}
+                  onClick={() => patch({ gender: option })}
+                  className={cn("chip", data.gender === option ? "chip-selected" : "chip-unselected")}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="field-label">年齢</label>
+            <input
+              className="field-input"
+              type="number"
+              min={0}
+              value={data.age}
+              onChange={(e) => patch({ age: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="field-label">住んでいる地域</label>
+            <select
+              className="field-input"
+              value={data.residenceArea}
+              onChange={(e) => patch({ residenceArea: e.target.value })}
+            >
+              <option value="">選択してください</option>
+              {PREFECTURE_OPTIONS.map((pref) => (
+                <option key={pref} value={pref}>
+                  {pref}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </section>

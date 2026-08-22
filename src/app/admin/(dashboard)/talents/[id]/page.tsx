@@ -49,6 +49,9 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
             <Row label="本名">{talent.realName || "未入力"}</Row>
             <Row label="芸名">{talent.stageName || "未入力"}</Row>
             <Row label="メールアドレス">{talent.email}</Row>
+            <Row label="性別">{talent.profile?.gender || "未入力"}</Row>
+            <Row label="年齢">{talent.profile?.age != null ? `${talent.profile.age}歳` : "未入力"}</Row>
+            <Row label="住んでいる地域">{talent.profile?.residenceArea || "未入力"}</Row>
             <Row label="実績">
               {talent.achievements.length === 0 ? (
                 "未入力"

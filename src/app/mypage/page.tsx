@@ -56,6 +56,12 @@ export default async function MyPage() {
       </div>
 
       <div className="space-y-4">
+        <Section title="基本情報">
+          <p className="text-sm">性別：{user.profile?.gender || "未入力"}</p>
+          <p className="text-sm">年齢：{user.profile?.age != null ? `${user.profile.age}歳` : "未入力"}</p>
+          <p className="text-sm">住んでいる地域：{user.profile?.residenceArea || "未入力"}</p>
+        </Section>
+
         <Section title="実績・経験">
           {user.achievements.length === 0 && <Empty />}
           <ul className="list-disc space-y-1 pl-5 text-sm">
