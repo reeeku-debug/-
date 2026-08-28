@@ -1,0 +1,25 @@
+// REALITY新規登録者管理ダッシュボード
+// 開発時は SQLite、本番(Vercel等)では PostgreSQL(Supabase/Neon等)を推奨。
+// 切り替え方法は README.md / DEPLOY.md を参照。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Registrant {
+  id         String   @id @default(cuid())
+  submitter  String // 提出内容(誰から提出されたか)
+  realityUrl String // REALITY プロフィールURL
+  realityId  String   @unique // REALITY ID(重複登録防止のための一意キー)
+  stageName  String // 活動名
+  realName   String // 本名(管理画面のみで表示)
+  createdAt  DateTime @default(now()) // 登録日時(自動取得)
+  updatedAt  DateTime @updatedAt
+
+  @@index([createdAt])
+}
