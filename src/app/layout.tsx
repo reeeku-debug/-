@@ -3,8 +3,8 @@ import "./globals.css";
 import Providers from "./providers";
 
 export const metadata: Metadata = {
-  title: "タレント情報マッチングシステム",
-  description: "情報収集・案件マッチングアプリ",
+  title: "実績報告アプリ",
+  description: "実績・プロフィール報告アプリ",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

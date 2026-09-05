@@ -12,9 +12,9 @@ export default async function HomePage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-brand-50 to-white px-4">
       <div className="w-full max-w-md text-center">
-        <h1 className="text-2xl font-bold text-gray-900">タレント情報マッチングシステム</h1>
+        <h1 className="text-2xl font-bold text-gray-900">実績報告アプリ</h1>
         <p className="mt-2 text-sm text-gray-600">
-          プロフィール登録と案件マッチングをひとつのプラットフォームで。
+          プロフィールや実績をかんたんに報告できるアプリです。
         </p>
 
         <div className="mt-10 space-y-4">
