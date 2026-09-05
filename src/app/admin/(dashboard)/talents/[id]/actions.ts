@@ -2,6 +2,7 @@
 
 import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { TalentFormData } from "@/lib/types";
@@ -113,4 +114,18 @@ export async function adminUpdateTalent(userId: string, data: TalentFormData) {
 
   revalidatePath(`/admin/talents/${userId}`);
   revalidatePath("/admin/talents");
+}
+
+export async function deleteTalent(userId: string) {
+  await requireAdmin();
+
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+  if (!target || target.role !== "RESPONDENT") {
+    throw new Error("削除対象が見つかりません");
+  }
+
+  await prisma.user.delete({ where: { id: userId } });
+
+  revalidatePath("/admin/talents");
+  redirect("/admin/talents");
 }

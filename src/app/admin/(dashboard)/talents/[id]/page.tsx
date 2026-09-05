@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { SOCIAL_PLATFORMS } from "@/lib/constants";
 import { formatDateTime, formatFollowers, isStale } from "@/lib/utils";
 import AdminNoteEditor from "@/components/admin/admin-note-editor";
+import DeleteTalentButton from "@/components/admin/delete-talent-button";
 
 export default async function TalentDetailPage({ params }: { params: { id: string } }) {
   const talent = await prisma.user.findUnique({
@@ -38,9 +39,12 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
             )}
           </p>
         </div>
-        <Link href={`/admin/talents/${talent.id}/edit`} className="btn-primary">
-          編集する
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link href={`/admin/talents/${talent.id}/edit`} className="btn-primary">
+            編集する
+          </Link>
+          <DeleteTalentButton userId={talent.id} stageName={talent.stageName ?? ""} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
