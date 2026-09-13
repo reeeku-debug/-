@@ -2,11 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { formatDateOnlyJST } from "@/lib/utils";
+import { getRequestOrigin } from "@/lib/request";
 import { summarizeTalentProgress } from "@/lib/progress";
 import { AdminStepRow } from "@/components/admin/admin-step-row";
 import { ReportReviewCard } from "@/components/admin/report-review-card";
 import { DeleteTalentButton } from "@/components/admin/delete-talent-button";
 import { ResetPasswordButton } from "@/components/admin/reset-password-button";
+import { CopyButton } from "@/components/copy-button";
 
 export default async function TalentDetailPage({ params }: { params: { id: string } }) {
   const talent = await prisma.talent.findUnique({ where: { id: params.id } });
@@ -24,6 +26,7 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
 
   const statusMap = new Map(statuses.map((s) => [s.stepTemplateId, s.status]));
   const summary = summarizeTalentProgress(steps, statusMap);
+  const talentUrl = `${getRequestOrigin()}/talent/${talent.slug}`;
 
   return (
     <div className="space-y-6">
@@ -68,11 +71,17 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
         <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
           <div>
             <dt className="text-xs text-gray-400">ログインID</dt>
-            <dd className="font-mono font-semibold">{talent.loginId}</dd>
+            <dd className="flex items-center gap-2">
+              <span className="font-mono font-semibold">{talent.loginId}</span>
+              <CopyButton value={talent.loginId} />
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-gray-400">専用URL</dt>
-            <dd className="font-mono text-xs">/talent/{talent.slug}</dd>
+            <dd className="flex items-center gap-2">
+              <span className="truncate font-mono text-xs">{talentUrl}</span>
+              <CopyButton value={talentUrl} />
+            </dd>
           </div>
           <div>
             <dt className="text-xs text-gray-400">初配信予定日</dt>

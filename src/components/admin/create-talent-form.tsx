@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createTalentAction } from "@/app/admin/(dashboard)/talents/actions";
+import { CopyButton } from "@/components/copy-button";
 
 export function CreateTalentForm() {
   const [pending, setPending] = useState(false);
@@ -30,6 +31,9 @@ export function CreateTalentForm() {
 
   if (result) {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const url = `${origin}/talent/${result.slug}`;
+    const shareText = `ログインID: ${result.loginId}\nパスワード: ${result.password}\n専用URL: ${url}`;
+
     return (
       <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-6">
         <p className="font-bold text-emerald-700">✅ タレントを登録しました</p>
@@ -37,21 +41,31 @@ export function CreateTalentForm() {
           パスワードはこの画面でのみ表示されます。控えて本人に共有してください。
         </p>
         <dl className="mt-4 space-y-2 text-sm">
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-gray-500">ログインID</dt>
-            <dd className="font-mono font-semibold">{result.loginId}</dd>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="shrink-0 text-gray-500">ログインID</dt>
+            <dd className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-mono font-semibold">{result.loginId}</span>
+              <CopyButton value={result.loginId} />
+            </dd>
           </div>
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-gray-500">初期パスワード</dt>
-            <dd className="font-mono font-semibold">{result.password}</dd>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="shrink-0 text-gray-500">初期パスワード</dt>
+            <dd className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-mono font-semibold">{result.password}</span>
+              <CopyButton value={result.password} />
+            </dd>
           </div>
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-gray-500">専用URL</dt>
-            <dd className="truncate font-mono text-xs">
-              {origin}/talent/{result.slug}
+          <div className="flex items-center justify-between gap-3">
+            <dt className="shrink-0 text-gray-500">専用URL</dt>
+            <dd className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-mono text-xs">{url}</span>
+              <CopyButton value={url} />
             </dd>
           </div>
         </dl>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <CopyButton value={shareText} label="3つまとめてコピー（共有用）" />
+        </div>
         <Link
           href={`/admin/talents/${result.talentId}`}
           className="mt-5 inline-block rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white hover:bg-gray-800"

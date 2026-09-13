@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { formatDateOnlyJST } from "@/lib/utils";
+import { CopyButton } from "@/components/copy-button";
 import { DeleteTalentButton } from "./delete-talent-button";
 
 type TalentRow = {
@@ -11,7 +12,7 @@ type TalentRow = {
   firstStreamDate: Date | null;
 };
 
-export function TalentManageTable({ talents }: { talents: TalentRow[] }) {
+export function TalentManageTable({ talents, origin }: { talents: TalentRow[]; origin: string }) {
   if (talents.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-400">
@@ -39,8 +40,20 @@ export function TalentManageTable({ talents }: { talents: TalentRow[] }) {
                 <p className="font-semibold text-gray-900">{t.name}</p>
                 {t.activityName && <p className="text-xs text-gray-400">{t.activityName}</p>}
               </td>
-              <td className="px-4 py-3 font-mono text-xs text-gray-600">{t.loginId}</td>
-              <td className="px-4 py-3 font-mono text-xs text-gray-500">/talent/{t.slug}</td>
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs text-gray-600">{t.loginId}</span>
+                  <CopyButton value={t.loginId} />
+                </div>
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="max-w-[160px] truncate font-mono text-xs text-gray-500">
+                    {origin}/talent/{t.slug}
+                  </span>
+                  <CopyButton value={`${origin}/talent/${t.slug}`} />
+                </div>
+              </td>
               <td className="px-4 py-3 text-gray-600">{formatDateOnlyJST(t.firstStreamDate)}</td>
               <td className="px-4 py-3">
                 <div className="flex items-center justify-end gap-3">
