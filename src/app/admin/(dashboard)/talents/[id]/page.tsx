@@ -47,7 +47,7 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
             )}
             {talent.name}さんの進捗
           </h1>
-          {talent.activityName && <p className="text-sm text-gray-500">活動名: {talent.activityName}</p>}
+          {talent.activityName && <p className="text-sm text-gray-500">本名: {talent.activityName}</p>}
         </div>
         <div className="flex gap-2">
           <Link

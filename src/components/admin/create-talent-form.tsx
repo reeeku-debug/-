@@ -96,7 +96,7 @@ export function CreateTalentForm() {
         <p className="mt-1 text-xs text-gray-400">マネージャー側でのみ表示されます。タレント本人には見えません。</p>
       </div>
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">活動名（任意）</label>
+        <label className="mb-1 block text-sm font-medium text-gray-700">本名（任意）</label>
         <input
           name="activityName"
           className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"

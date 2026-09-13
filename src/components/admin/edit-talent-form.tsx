@@ -55,7 +55,7 @@ export function EditTalentForm({ talent }: { talent: TalentInput }) {
         <p className="mt-1 text-xs text-gray-400">マネージャー側でのみ表示されます。タレント本人には見えません。</p>
       </div>
       <div>
-        <label className="mb-1 block text-sm font-medium text-gray-700">活動名</label>
+        <label className="mb-1 block text-sm font-medium text-gray-700">本名</label>
         <input
           name="activityName"
           defaultValue={talent.activityName ?? ""}
