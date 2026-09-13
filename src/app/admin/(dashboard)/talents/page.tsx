@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getRequestOrigin } from "@/lib/request";
-import { TalentManageTable } from "@/components/admin/talent-manage-table";
+import { TalentTableWithSearch } from "@/components/admin/talent-table-with-search";
 
 export default async function AdminTalentsPage() {
   const talents = await prisma.talent.findMany({ orderBy: { createdAt: "desc" } });
@@ -18,7 +18,7 @@ export default async function AdminTalentsPage() {
           ＋ タレントを追加
         </Link>
       </div>
-      <TalentManageTable talents={talents} origin={origin} />
+      <TalentTableWithSearch talents={talents} origin={origin} />
     </div>
   );
 }

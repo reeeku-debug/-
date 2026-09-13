@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { ReportReviewCard } from "@/components/admin/report-review-card";
+import { ReportSearchList } from "@/components/admin/report-search-list";
 
 export default async function AdminReportsPage() {
   const reports = await prisma.stepReport.findMany({
@@ -16,11 +16,7 @@ export default async function AdminReportsPage() {
           確認待ちの完了報告はありません。
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {reports.map((r) => (
-            <ReportReviewCard key={r.id} report={r} />
-          ))}
-        </div>
+        <ReportSearchList reports={reports} />
       )}
     </div>
   );
