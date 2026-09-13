@@ -69,7 +69,7 @@ export function AdminLoginForm() {
         disabled={loading}
         className="mt-2 w-full rounded-xl bg-gray-900 px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-gray-800 disabled:opacity-60"
       >
-        {loading ? "ログイン中..." : "管理者ログイン"}
+        {loading ? "ログイン中..." : "マネージャーログイン"}
       </button>
     </form>
   );

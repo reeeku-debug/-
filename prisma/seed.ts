@@ -6,7 +6,7 @@ import { initializeTalentSteps, submitReport, approveReport, adminForceClear } f
 const prisma = new PrismaClient();
 
 async function main() {
-  // --- 管理者アカウント ---
+  // --- マネージャーアカウント ---
   const adminEmail = (process.env.SEED_ADMIN_EMAIL || "admin@example.com").trim().toLowerCase();
   const adminPassword = process.env.SEED_ADMIN_PASSWORD || "ChangeMe123!";
 
@@ -16,10 +16,10 @@ async function main() {
     create: {
       email: adminEmail,
       passwordHash: await bcrypt.hash(adminPassword, 10),
-      name: "管理者",
+      name: "マネージャー",
     },
   });
-  console.log(`✔ 管理者アカウント: ${adminEmail} / ${adminPassword}`);
+  console.log(`✔ マネージャーアカウント: ${adminEmail} / ${adminPassword}`);
 
   // --- STEPマスタ（既存があればスキップ） ---
   const existingStepCount = await prisma.stepTemplate.count();

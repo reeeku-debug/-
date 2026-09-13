@@ -111,7 +111,7 @@ export function RoadmapStepCard({
 
         {status === "REVIEW" && (
           <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700">
-            📨 管理者確認中！
+            📨 マネージャー確認中！
           </p>
         )}
 

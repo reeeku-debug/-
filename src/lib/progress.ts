@@ -6,7 +6,7 @@ export type StepStatus = "LOCKED" | "CHALLENGE" | "REVIEW" | "CLEAR";
 // これらの関数だけが進捗（TalentStepStatus）を書き換える。
 // タレント側から呼び出せるのは submitReport のみで、それも
 // CHALLENGE状態のSTEPをREVIEWに進めるだけであり、CLEARへは進められない。
-// CLEARへ進める（＝進捗を確定する）操作は管理者用関数のみが行う。
+// CLEARへ進める（＝進捗を確定する）操作はマネージャー用関数のみが行う。
 
 /**
  * 新規タレント作成時に、有効なSTEP全件分のステータス行を作成する。
@@ -34,7 +34,7 @@ export async function initializeTalentSteps(talentId: string) {
 }
 
 /**
- * 指定STEPをCLEARにし、次のSTEPを解放する（内部専用・管理者操作からのみ呼ばれる）。
+ * 指定STEPをCLEARにし、次のSTEPを解放する（内部専用・マネージャー操作からのみ呼ばれる）。
  * 次のSTEPが「報告不要」(GOAL等)の場合は連鎖的にCLEARにする。
  */
 async function clearStepAndUnlockNext(talentId: string, stepTemplateId: string) {
@@ -114,7 +114,7 @@ export async function submitReport(
   ]);
 }
 
-/** 管理者：完了報告を承認する → STEPがCLEARになり、次のSTEPが解放される */
+/** マネージャー：完了報告を承認する → STEPがCLEARになり、次のSTEPが解放される */
 export async function approveReport(reportId: string, adminId: string, reviewComment?: string) {
   const report = await prisma.stepReport.findUniqueOrThrow({ where: { id: reportId } });
   if (report.status !== "PENDING") {
@@ -134,7 +134,7 @@ export async function approveReport(reportId: string, adminId: string, reviewCom
   await clearStepAndUnlockNext(report.talentId, report.stepTemplateId);
 }
 
-/** 管理者：完了報告を差し戻す → STEPはCHALLENGEに戻り再提出できる */
+/** マネージャー：完了報告を差し戻す → STEPはCHALLENGEに戻り再提出できる */
 export async function rejectReport(reportId: string, adminId: string, reviewComment?: string) {
   const report = await prisma.stepReport.findUniqueOrThrow({ where: { id: reportId } });
   if (report.status !== "PENDING") {
@@ -160,12 +160,12 @@ export async function rejectReport(reportId: string, adminId: string, reviewComm
   ]);
 }
 
-/** 管理者：STEPを直接CLEARにする（スキップも同じ処理） */
+/** マネージャー：STEPを直接CLEARにする（スキップも同じ処理） */
 export async function adminForceClear(talentId: string, stepTemplateId: string) {
   await clearStepAndUnlockNext(talentId, stepTemplateId);
 }
 
-/** 管理者：STEPを未達成（挑戦中）に戻す。以降のSTEPは連鎖的にロックされる。 */
+/** マネージャー：STEPを未達成（挑戦中）に戻す。以降のSTEPは連鎖的にロックされる。 */
 export async function adminRevertToChallenge(talentId: string, stepTemplateId: string) {
   const step = await prisma.stepTemplate.findUniqueOrThrow({ where: { id: stepTemplateId } });
 
@@ -178,7 +178,7 @@ export async function adminRevertToChallenge(talentId: string, stepTemplateId: s
   await lockAllAfter(talentId, step.order);
 }
 
-/** 管理者：STEPを強制的にロックする。以降のSTEPも連鎖的にロックされる。 */
+/** マネージャー：STEPを強制的にロックする。以降のSTEPも連鎖的にロックされる。 */
 export async function adminForceLock(talentId: string, stepTemplateId: string) {
   const step = await prisma.stepTemplate.findUniqueOrThrow({ where: { id: stepTemplateId } });
 
@@ -285,7 +285,7 @@ export function calcProgress(
   return { total: countable.length, cleared: cleared.length };
 }
 
-/** 管理者ダッシュボード用：タレント1人分の進捗サマリーを計算する */
+/** マネージャーダッシュボード用：タレント1人分の進捗サマリーを計算する */
 export function summarizeTalentProgress(
   steps: { id: string; title: string; type: string; requiresReport: boolean; order: number }[],
   statusByStepId: Map<string, string>

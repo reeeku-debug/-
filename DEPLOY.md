@@ -35,14 +35,14 @@ Vercelのプロジェクト設定 → **Environment Variables** で以下を追�
 | `DATABASE_URL_UNPOOLED` | マイグレーション用の直接接続文字列（Neon連携なら自動設定済み。なければ`DATABASE_URL`と同じ値でOK） |
 | `NEXTAUTH_SECRET` | ランダムな文字列。ターミナルで `openssl rand -base64 32` などで生成 |
 | `NEXTAUTH_URL` | デプロイ後に割り当てられるURL（例: `https://your-app.vercel.app`）。初回デプロイ後に確認して設定し、再デプロイしてください |
-| `SEED_ADMIN_EMAIL` | 管理者ログイン用メールアドレス（任意の値） |
-| `SEED_ADMIN_PASSWORD` | 管理者ログイン用パスワード（任意の値） |
+| `SEED_ADMIN_EMAIL` | マネージャーログイン用メールアドレス（任意の値） |
+| `SEED_ADMIN_PASSWORD` | マネージャーログイン用パスワード（任意の値） |
 
 ## 4. デプロイ
 
 「Deploy」を押すとビルドとマイグレーション（`prisma migrate deploy`）が自動実行されます。
 
-初回デプロイ完了後、管理者アカウントと初期STEPデータを投入する必要があります。
+初回デプロイ完了後、マネージャーアカウントと初期STEPデータを投入する必要があります。
 ローカルの開発環境から、本番のDBに向けて一度だけ実行してください。
 
 ```bash
@@ -52,11 +52,11 @@ npm run seed
 
 （サンプルタレントが不要な場合は、`prisma/seed.ts` のサンプルタレント登録部分を
 削除してから実行するか、Vercelのダッシュボードや `psql` から直接
-管理者ユーザーとSTEPマスタのみを投入しても構いません。）
+マネージャーユーザーとSTEPマスタのみを投入しても構いません。）
 
 ## 5. 動作確認
 
-`https://your-app.vercel.app/admin/login` にアクセスし、管理者アカウントで
+`https://your-app.vercel.app/admin/login` にアクセスし、マネージャーアカウントで
 ログインできることを確認してください。
 
 ## 補足

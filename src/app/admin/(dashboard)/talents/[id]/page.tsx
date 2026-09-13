@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { formatDateOnlyJST } from "@/lib/utils";
+import { formatDateOnlyJST, formatDateJST } from "@/lib/utils";
+import { REPORT_STATUS_LABEL } from "@/lib/constants";
 import { getRequestOrigin } from "@/lib/request";
 import { summarizeTalentProgress } from "@/lib/progress";
 import { AdminStepRow } from "@/components/admin/admin-step-row";
@@ -14,13 +15,18 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
   const talent = await prisma.talent.findUnique({ where: { id: params.id } });
   if (!talent) notFound();
 
-  const [steps, statuses, pendingReports] = await Promise.all([
+  const [steps, statuses, pendingReports, historyReports] = await Promise.all([
     prisma.stepTemplate.findMany({ where: { active: true }, orderBy: { order: "asc" } }),
     prisma.talentStepStatus.findMany({ where: { talentId: talent.id } }),
     prisma.stepReport.findMany({
       where: { talentId: talent.id, status: "PENDING" },
       orderBy: { submittedAt: "asc" },
       include: { talent: true, stepTemplate: true },
+    }),
+    prisma.stepReport.findMany({
+      where: { talentId: talent.id, status: { not: "PENDING" } },
+      orderBy: { submittedAt: "desc" },
+      include: { stepTemplate: true },
     }),
   ]);
 
@@ -105,6 +111,49 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
           <div className="space-y-3">
             {pendingReports.map((r) => (
               <ReportReviewCard key={r.id} report={r} showTalentName={false} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {historyReports.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-gray-500">過去の報告履歴</h2>
+          <div className="space-y-2">
+            {historyReports.map((r) => (
+              <div key={r.id} className="rounded-xl border border-gray-200 bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {r.stepTemplate.icon} {r.stepTemplate.title}
+                    </p>
+                    <p className="mt-0.5 text-xs text-gray-400">{formatDateJST(r.submittedAt)} 送信</p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${
+                      r.status === "APPROVED"
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                        : "border-red-300 bg-red-50 text-red-700"
+                    }`}
+                  >
+                    {REPORT_STATUS_LABEL[r.status]}
+                  </span>
+                </div>
+                {r.comment && <p className="mt-2 whitespace-pre-line text-sm text-gray-600">{r.comment}</p>}
+                {r.relatedUrl && (
+                  <a
+                    href={r.relatedUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 block truncate text-sm text-brand-600 underline"
+                  >
+                    {r.relatedUrl}
+                  </a>
+                )}
+                {r.status === "REJECTED" && r.reviewComment && (
+                  <p className="mt-2 text-xs text-red-600">差し戻し理由: {r.reviewComment}</p>
+                )}
+              </div>
             ))}
           </div>
         </div>

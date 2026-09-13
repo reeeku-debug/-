@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ProgressHeader } from "@/components/talent/progress-header";
@@ -35,8 +36,11 @@ export default async function TalentRoadmapPage({ params }: { params: { slug: st
 
   return (
     <main className="mx-auto min-h-screen max-w-lg px-4 pb-16 pt-8">
-      <div className="mb-6">
+      <div className="mb-6 flex items-center justify-between">
         <p className="text-sm font-semibold text-gray-400">VTuber活動ロードマップ</p>
+        <Link href={`/talent/${talent.slug}/history`} className="text-xs font-semibold text-brand-600 hover:underline">
+          提出履歴を見る →
+        </Link>
       </div>
 
       <ProgressHeader name={talent.name} total={normalSteps.length} cleared={clearedCount} />

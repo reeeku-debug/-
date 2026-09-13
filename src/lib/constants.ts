@@ -1,4 +1,4 @@
-// 初期状態で登録する10STEP + GOAL の定義（管理者は後から自由に編集可能）
+// 初期状態で登録する10STEP + GOAL の定義（マネージャーは後から自由に編集可能）
 export const DEFAULT_STEPS = [
   {
     order: 1,

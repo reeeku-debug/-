@@ -21,7 +21,7 @@ export default function Home() {
           href="/admin/login"
           className="w-full rounded-xl border border-gray-300 bg-white px-6 py-3 font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50"
         >
-          管理者ログイン
+          マネージャーログイン
         </Link>
       </div>
     </main>
