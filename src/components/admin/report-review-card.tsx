@@ -17,9 +17,11 @@ type ReportLite = {
 export function ReportReviewCard({
   report,
   showTalentName = true,
+  onDone,
 }: {
   report: ReportLite;
   showTalentName?: boolean;
+  onDone?: () => void;
 }) {
   const [pending, startTransition] = useTransition();
   const [rejecting, setRejecting] = useState(false);
@@ -32,7 +34,10 @@ export function ReportReviewCard({
     startTransition(async () => {
       const res = await approveReportAction(report.id);
       if (!res.success) setError(res.error);
-      else setDone(true);
+      else {
+        setDone(true);
+        onDone?.();
+      }
     });
   }
 
@@ -41,7 +46,10 @@ export function ReportReviewCard({
     startTransition(async () => {
       const res = await rejectReportAction(report.id, reason);
       if (!res.success) setError(res.error);
-      else setDone(true);
+      else {
+        setDone(true);
+        onDone?.();
+      }
     });
   }
 

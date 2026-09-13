@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ReportReviewCard } from "./report-review-card";
+import { TalentReportGroup } from "./talent-report-group";
 
 type ReportRow = {
   id: string;
@@ -26,6 +26,24 @@ export function ReportSearchList({ reports }: { reports: ReportRow[] }) {
     );
   }, [reports, query]);
 
+  const groups = useMemo(() => {
+    const map = new Map<string, { talentId: string; talentName: string; managementNo: string | null; reports: ReportRow[] }>();
+    for (const r of filtered) {
+      const existing = map.get(r.talent.id);
+      if (existing) {
+        existing.reports.push(r);
+      } else {
+        map.set(r.talent.id, {
+          talentId: r.talent.id,
+          talentName: r.talent.name,
+          managementNo: r.talent.managementNo,
+          reports: [r],
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [filtered]);
+
   return (
     <div className="space-y-4">
       <input
@@ -35,14 +53,20 @@ export function ReportSearchList({ reports }: { reports: ReportRow[] }) {
         placeholder="タレント名・No.・STEP名・コメントで検索"
         className="w-full max-w-sm rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"
       />
-      {filtered.length === 0 ? (
+      {groups.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-400">
           該当する完了報告はありません。
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
-          {filtered.map((r) => (
-            <ReportReviewCard key={r.id} report={r} />
+          {groups.map((g) => (
+            <TalentReportGroup
+              key={g.talentId}
+              talentId={g.talentId}
+              talentName={g.talentName}
+              managementNo={g.managementNo}
+              reports={g.reports}
+            />
           ))}
         </div>
       )}
