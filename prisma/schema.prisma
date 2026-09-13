@@ -1,0 +1,122 @@
+// VTuber活動ロードマップ・スタンプラリー - Prisma schema
+// PostgreSQL（Vercel等のサーバーレス環境にデプロイするため）。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon等のプール接続(pgbouncer)はマイグレーション実行に必要な
+  // アドバイザリーロックをサポートしないため、マイグレーション専用に
+  // 直接接続を使う。Vercel+Neon連携では自動的に用意される変数。
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+// 管理者アカウント
+model Admin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+
+  createdAt DateTime @default(now())
+
+  reviewedReports StepReport[] @relation("ReviewedByAdmin")
+}
+
+// タレント（VTuber）アカウント
+// 進捗データはタレントごとに完全に分離され、タレント自身は書き換えられない。
+model Talent {
+  id           String  @id @default(cuid())
+  loginId      String  @unique // ログインID
+  passwordHash String
+  slug         String  @unique // 専用URL (/talent/[slug]) 用トークン
+
+  name             String // タレント名（管理用の呼び名）
+  managementNo     String? // 管理番号（No.）。マネージャー側でのみ確認・編集可能、タレント側には表示しない
+  activityName     String? // 本名（UI表記）。DBフィールド名は互換性のため活動名時代のまま
+  startMonth       String? // 活動開始月（"YYYY-MM"形式）
+  firstStreamDate  DateTime? // 初配信予定日
+  notes            String? // 備考（管理者メモ）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stepStatuses TalentStepStatus[]
+  reports      StepReport[]
+}
+
+// STEPの定義（管理者が変更・追加・削除・並び替え可能なマスタ）
+// type: "NORMAL" | "GOAL"
+model StepTemplate {
+  id     String @id @default(cuid())
+  order  Int // 表示順（1,2,3...最後がGOAL）。並び替え時の一時的な衝突を避けるためDB制約はindexのみ。
+  key    String @unique // 安定した識別キー
+
+  icon        String  @default("✅") // アイコン（絵文字）
+  title       String // STEP名
+  description String // STEP内容
+  buttonLabel String  @default("完了報告を送る")
+
+  type           String  @default("NORMAL") // NORMAL | GOAL
+  requiresReport Boolean @default(true) // GOALはfalse（前STEP承認で自動解放）
+  active         Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statuses TalentStepStatus[]
+  reports  StepReport[]
+
+  @@index([order])
+}
+
+// タレント×STEPごとの現在の状態
+// status: "LOCKED" | "CHALLENGE" | "REVIEW" | "CLEAR"
+model TalentStepStatus {
+  id String @id @default(cuid())
+
+  talentId String
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  stepTemplateId String
+  stepTemplate   StepTemplate @relation(fields: [stepTemplateId], references: [id], onDelete: Cascade)
+
+  status    String    @default("LOCKED")
+  clearedAt DateTime?
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([talentId, stepTemplateId])
+  @@index([talentId])
+}
+
+// 完了報告（タレントが送信、管理者が承認/差し戻し）
+// status: "PENDING" | "APPROVED" | "REJECTED"
+model StepReport {
+  id String @id @default(cuid())
+
+  talentId String
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  stepTemplateId String
+  stepTemplate   StepTemplate @relation(fields: [stepTemplateId], references: [id], onDelete: Cascade)
+
+  comment    String?
+  imageUrl   String?
+  relatedUrl String?
+
+  status        String  @default("PENDING")
+  reviewComment String? // 差し戻し理由など
+
+  submittedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+
+  reviewedByAdminId String?
+  reviewedByAdmin   Admin? @relation("ReviewedByAdmin", fields: [reviewedByAdminId], references: [id])
+
+  @@index([talentId])
+  @@index([status])
+}
