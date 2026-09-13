@@ -39,3 +39,11 @@ export function formatDateOnlyJST(date: Date | string | null | undefined): strin
     day: "2-digit",
   }).format(d);
 }
+
+/** "YYYY-MM" 形式の活動開始月を "YYYY年M月" で表示する */
+export function formatStartMonth(value: string | null | undefined): string {
+  if (!value) return "-";
+  const [year, month] = value.split("-");
+  if (!year || !month) return value;
+  return `${year}年${Number(month)}月`;
+}

@@ -15,6 +15,7 @@ export default async function EditTalentPage({ params }: { params: { id: string 
           name: talent.name,
           managementNo: talent.managementNo,
           activityName: talent.activityName,
+          startMonth: talent.startMonth,
           firstStreamDate: talent.firstStreamDate ? talent.firstStreamDate.toISOString().slice(0, 10) : null,
           notes: talent.notes,
         }}

@@ -19,6 +19,7 @@ export async function updateTalentInfoAction(talentId: string, formData: FormDat
 
   const managementNo = (formData.get("managementNo") as string | null)?.trim() || null;
   const activityName = (formData.get("activityName") as string | null)?.trim() || null;
+  const startMonth = (formData.get("startMonth") as string | null)?.trim() || null;
   const firstStreamDateRaw = (formData.get("firstStreamDate") as string | null) || "";
   const notes = (formData.get("notes") as string | null)?.trim() || null;
 
@@ -28,6 +29,7 @@ export async function updateTalentInfoAction(talentId: string, formData: FormDat
       name,
       managementNo,
       activityName,
+      startMonth,
       firstStreamDate: firstStreamDateRaw ? new Date(firstStreamDateRaw) : null,
       notes,
     },

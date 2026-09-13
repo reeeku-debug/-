@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { formatDateOnlyJST, formatDateJST } from "@/lib/utils";
+import { formatDateOnlyJST, formatDateJST, formatStartMonth } from "@/lib/utils";
 import { REPORT_STATUS_LABEL } from "@/lib/constants";
 import { getRequestOrigin } from "@/lib/request";
 import { summarizeTalentProgress } from "@/lib/progress";
@@ -97,6 +97,10 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
               <span className="truncate font-mono text-xs">{talentUrl}</span>
               <CopyButton value={talentUrl} />
             </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-gray-400">活動開始月</dt>
+            <dd>{formatStartMonth(talent.startMonth)}</dd>
           </div>
           <div>
             <dt className="text-xs text-gray-400">初配信予定日</dt>

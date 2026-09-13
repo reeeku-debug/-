@@ -103,6 +103,14 @@ export function CreateTalentForm() {
         />
       </div>
       <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700">活動開始月（任意）</label>
+        <input
+          type="month"
+          name="startMonth"
+          className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"
+        />
+      </div>
+      <div>
         <label className="mb-1 block text-sm font-medium text-gray-700">初配信予定日（任意）</label>
         <input
           type="date"

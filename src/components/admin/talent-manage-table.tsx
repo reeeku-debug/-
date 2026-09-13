@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { formatDateOnlyJST } from "@/lib/utils";
+import { formatDateOnlyJST, formatStartMonth } from "@/lib/utils";
 import { CopyButton } from "@/components/copy-button";
 import { DeleteTalentButton } from "./delete-talent-button";
 
@@ -10,6 +10,7 @@ type TalentRow = {
   loginId: string;
   slug: string;
   activityName: string | null;
+  startMonth: string | null;
   firstStreamDate: Date | null;
 };
 
@@ -31,6 +32,7 @@ export function TalentManageTable({ talents, origin }: { talents: TalentRow[]; o
             <th className="px-4 py-3 font-semibold">タレント名</th>
             <th className="px-4 py-3 font-semibold">ログインID</th>
             <th className="px-4 py-3 font-semibold">専用URL</th>
+            <th className="px-4 py-3 font-semibold">活動開始月</th>
             <th className="px-4 py-3 font-semibold">初配信予定日</th>
             <th className="px-4 py-3" />
           </tr>
@@ -57,6 +59,7 @@ export function TalentManageTable({ talents, origin }: { talents: TalentRow[]; o
                   <CopyButton value={`${origin}/talent/${t.slug}`} />
                 </div>
               </td>
+              <td className="px-4 py-3 text-gray-600">{formatStartMonth(t.startMonth)}</td>
               <td className="px-4 py-3 text-gray-600">{formatDateOnlyJST(t.firstStreamDate)}</td>
               <td className="px-4 py-3">
                 <div className="flex items-center justify-end gap-3">

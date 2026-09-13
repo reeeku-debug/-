@@ -9,6 +9,7 @@ type TalentInput = {
   name: string;
   managementNo: string | null;
   activityName: string | null;
+  startMonth: string | null;
   firstStreamDate: string | null;
   notes: string | null;
 };
@@ -59,6 +60,15 @@ export function EditTalentForm({ talent }: { talent: TalentInput }) {
         <input
           name="activityName"
           defaultValue={talent.activityName ?? ""}
+          className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"
+        />
+      </div>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700">活動開始月</label>
+        <input
+          type="month"
+          name="startMonth"
+          defaultValue={talent.startMonth ?? ""}
           className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"
         />
       </div>

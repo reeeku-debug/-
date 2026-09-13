@@ -21,6 +21,7 @@ export async function createTalentAction(formData: FormData): Promise<CreateResu
 
   const managementNo = (formData.get("managementNo") as string | null)?.trim() || null;
   const activityName = (formData.get("activityName") as string | null)?.trim() || null;
+  const startMonth = (formData.get("startMonth") as string | null)?.trim() || null;
   const firstStreamDateRaw = (formData.get("firstStreamDate") as string | null) || "";
   const notes = (formData.get("notes") as string | null)?.trim() || null;
   let loginId = (formData.get("loginId") as string | null)?.trim();
@@ -51,6 +52,7 @@ export async function createTalentAction(formData: FormData): Promise<CreateResu
       name,
       managementNo,
       activityName,
+      startMonth,
       firstStreamDate: firstStreamDateRaw ? new Date(firstStreamDateRaw) : null,
       notes,
       loginId,

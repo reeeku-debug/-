@@ -36,7 +36,8 @@ model Talent {
 
   name             String // タレント名（管理用の呼び名）
   managementNo     String? // 管理番号（No.）。マネージャー側でのみ確認・編集可能、タレント側には表示しない
-  activityName     String? // 活動名
+  activityName     String? // 本名（UI表記）。DBフィールド名は互換性のため活動名時代のまま
+  startMonth       String? // 活動開始月（"YYYY-MM"形式）
   firstStreamDate  DateTime? // 初配信予定日
   notes            String? // 備考（管理者メモ）
 
