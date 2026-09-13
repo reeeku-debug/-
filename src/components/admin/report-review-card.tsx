@@ -10,7 +10,7 @@ type ReportLite = {
   imageUrl: string | null;
   relatedUrl: string | null;
   submittedAt: Date;
-  talent: { id: string; name: string };
+  talent: { id: string; name: string; managementNo: string | null };
   stepTemplate: { title: string; icon: string };
 };
 
@@ -51,7 +51,14 @@ export function ReportReviewCard({
     <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
-          {showTalentName && <p className="text-xs font-semibold text-gray-400">{report.talent.name}さん</p>}
+          {showTalentName && (
+            <p className="text-xs font-semibold text-gray-400">
+              {report.talent.managementNo && (
+                <span className="mr-1 font-mono">No.{report.talent.managementNo}</span>
+              )}
+              {report.talent.name}さん
+            </p>
+          )}
           <p className="mt-0.5 font-bold">
             {report.stepTemplate.icon} STEP: {report.stepTemplate.title}
           </p>
