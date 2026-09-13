@@ -9,12 +9,12 @@ export type StepStatus = "LOCKED" | "CHALLENGE" | "REVIEW" | "CLEAR";
 // CLEARへ進める（＝進捗を確定する）操作はマネージャー用関数のみが行う。
 
 /**
- * 新規タレント作成時に、有効なSTEP全件分のステータス行を作成する。
- * 先頭STEPのみ CHALLENGE、それ以外は LOCKED。
+ * 新規タレント作成時に、そのタレントが使うSTEPパターンの有効STEP全件分の
+ * ステータス行を作成する。先頭STEPのみ CHALLENGE、それ以外は LOCKED。
  */
-export async function initializeTalentSteps(talentId: string) {
+export async function initializeTalentSteps(talentId: string, patternId: string) {
   const steps = await prisma.stepTemplate.findMany({
-    where: { active: true },
+    where: { patternId, active: true },
     orderBy: { order: "asc" },
   });
 
@@ -50,7 +50,7 @@ async function clearStepAndUnlockNext(talentId: string, stepTemplateId: string) 
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const next = await prisma.stepTemplate.findFirst({
-      where: { active: true, order: { gt: cursorOrder } },
+      where: { patternId: step.patternId, active: true, order: { gt: cursorOrder } },
       orderBy: { order: "asc" },
     });
     if (!next) break;
@@ -175,7 +175,7 @@ export async function adminRevertToChallenge(talentId: string, stepTemplateId: s
     update: { status: "CHALLENGE", clearedAt: null },
   });
 
-  await lockAllAfter(talentId, step.order);
+  await lockAllAfter(talentId, step.patternId, step.order);
 }
 
 /** マネージャー：STEPを強制的にロックする。以降のSTEPも連鎖的にロックされる。 */
@@ -188,12 +188,12 @@ export async function adminForceLock(talentId: string, stepTemplateId: string) {
     update: { status: "LOCKED", clearedAt: null },
   });
 
-  await lockAllAfter(talentId, step.order);
+  await lockAllAfter(talentId, step.patternId, step.order);
 }
 
-async function lockAllAfter(talentId: string, order: number) {
+async function lockAllAfter(talentId: string, patternId: string, order: number) {
   const laterSteps = await prisma.stepTemplate.findMany({
-    where: { active: true, order: { gt: order } },
+    where: { patternId, active: true, order: { gt: order } },
   });
   if (laterSteps.length === 0) return;
 
@@ -210,18 +210,22 @@ async function lockAllAfter(talentId: string, order: number) {
 
 /**
  * STEPマスタの構成変更（追加・削除・並び替え・有効/無効切替）後に、
- * 全タレントの進捗ステータスを整合性のある状態へ再計算する。
+ * 該当パターンを使う全タレントの進捗ステータスを整合性のある状態へ再計算する。
+ * patternIdを省略すると全タレントが対象になる。
  */
-export async function recomputeAllTalentsChain() {
-  const talents = await prisma.talent.findMany({ select: { id: true } });
+export async function recomputeAllTalentsChain(patternId?: string) {
+  const talents = await prisma.talent.findMany({
+    where: patternId ? { patternId } : undefined,
+    select: { id: true, patternId: true },
+  });
   for (const t of talents) {
-    await recomputeTalentChain(t.id);
+    await recomputeTalentChain(t.id, t.patternId);
   }
 }
 
-export async function recomputeTalentChain(talentId: string) {
+export async function recomputeTalentChain(talentId: string, patternId: string) {
   const steps = await prisma.stepTemplate.findMany({
-    where: { active: true },
+    where: { patternId, active: true },
     orderBy: { order: "asc" },
   });
   const statuses = await prisma.talentStepStatus.findMany({ where: { talentId } });

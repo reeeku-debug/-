@@ -21,12 +21,22 @@ async function main() {
   });
   console.log(`✔ マネージャーアカウント: ${adminEmail} / ${adminPassword}`);
 
+  // --- デフォルトSTEPパターン（既存があればそれを使う） ---
+  let defaultPattern = await prisma.stepPattern.findFirst({ where: { isDefault: true } });
+  if (!defaultPattern) {
+    defaultPattern = await prisma.stepPattern.create({
+      data: { name: "デフォルト", description: "初期からある標準のロードマップ", isDefault: true },
+    });
+    console.log("✔ デフォルトSTEPパターンを作成しました");
+  }
+
   // --- STEPマスタ（既存があればスキップ） ---
-  const existingStepCount = await prisma.stepTemplate.count();
+  const existingStepCount = await prisma.stepTemplate.count({ where: { patternId: defaultPattern.id } });
   if (existingStepCount === 0) {
     for (const s of DEFAULT_STEPS) {
       await prisma.stepTemplate.create({
         data: {
+          patternId: defaultPattern.id,
           order: s.order,
           key: s.key,
           icon: s.icon,
@@ -59,9 +69,10 @@ async function main() {
         slug: input.slug,
         name: input.name,
         activityName: input.activityName,
+        patternId: defaultPattern!.id,
       },
     });
-    await initializeTalentSteps(talent.id);
+    await initializeTalentSteps(talent.id, defaultPattern!.id);
     return talent;
   }
 
@@ -80,7 +91,10 @@ async function main() {
     activityName: "きららチャンネル",
     slug: "kirakira-vtuber",
   });
-  const stepsAsc = await prisma.stepTemplate.findMany({ where: { type: "NORMAL" }, orderBy: { order: "asc" } });
+  const stepsAsc = await prisma.stepTemplate.findMany({
+    where: { patternId: defaultPattern.id, type: "NORMAL" },
+    orderBy: { order: "asc" },
+  });
   if (stepsAsc.length >= 4) {
     for (const step of stepsAsc.slice(0, 3)) {
       const current = await prisma.talentStepStatus.findUnique({
@@ -115,7 +129,7 @@ async function main() {
     slug: "sorane-vtuber",
   });
   const allNormalSteps = await prisma.stepTemplate.findMany({
-    where: { type: "NORMAL" },
+    where: { patternId: defaultPattern.id, type: "NORMAL" },
     orderBy: { order: "asc" },
   });
   for (const step of allNormalSteps) {

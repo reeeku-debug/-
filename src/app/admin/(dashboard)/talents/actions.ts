@@ -26,6 +26,20 @@ export async function createTalentAction(formData: FormData): Promise<CreateResu
   const notes = (formData.get("notes") as string | null)?.trim() || null;
   let loginId = (formData.get("loginId") as string | null)?.trim();
 
+  let patternId = (formData.get("patternId") as string | null)?.trim() || null;
+  if (patternId) {
+    const pattern = await prisma.stepPattern.findUnique({ where: { id: patternId } });
+    if (!pattern) {
+      return { success: false, error: "選択されたパターンが見つかりません。" };
+    }
+  } else {
+    const defaultPattern = await prisma.stepPattern.findFirst({ where: { isDefault: true } });
+    if (!defaultPattern) {
+      return { success: false, error: "STEPパターンが見つかりません。先にSTEP管理でパターンを作成してください。" };
+    }
+    patternId = defaultPattern.id;
+  }
+
   if (loginId) {
     const existing = await prisma.talent.findUnique({ where: { loginId } });
     if (existing) {
@@ -58,10 +72,11 @@ export async function createTalentAction(formData: FormData): Promise<CreateResu
       loginId,
       passwordHash,
       slug,
+      patternId,
     },
   });
 
-  await initializeTalentSteps(talent.id);
+  await initializeTalentSteps(talent.id, patternId);
 
   revalidatePath("/admin/talents");
   revalidatePath("/admin");

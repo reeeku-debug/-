@@ -41,6 +41,9 @@ model Talent {
   firstStreamDate  DateTime? // 初配信予定日
   notes            String? // 備考（管理者メモ）
 
+  patternId String // このタレントが使うSTEPパターン（登録時に選択、以後固定）
+  pattern   StepPattern @relation(fields: [patternId], references: [id])
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -48,12 +51,29 @@ model Talent {
   reports      StepReport[]
 }
 
+// STEPパターン（ロードマップのひな形）。複数保存でき、タレント登録時に選択する。
+model StepPattern {
+  id          String  @id @default(cuid())
+  name        String // パターン名（例: "デフォルト", "配信初心者向け"）
+  description String?
+  isDefault   Boolean @default(false) // タレント登録時のデフォルト選択
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  steps   StepTemplate[]
+  talents Talent[]
+}
+
 // STEPの定義（管理者が変更・追加・削除・並び替え可能なマスタ）
 // type: "NORMAL" | "GOAL"
 model StepTemplate {
   id     String @id @default(cuid())
   order  Int // 表示順（1,2,3...最後がGOAL）。並び替え時の一時的な衝突を避けるためDB制約はindexのみ。
-  key    String @unique // 安定した識別キー
+  key    String // パターン内で安定した識別キー
+
+  patternId String
+  pattern   StepPattern @relation(fields: [patternId], references: [id], onDelete: Cascade)
 
   icon        String  @default("✅") // アイコン（絵文字）
   title       String // STEP名
@@ -70,7 +90,8 @@ model StepTemplate {
   statuses TalentStepStatus[]
   reports  StepReport[]
 
-  @@index([order])
+  @@unique([patternId, key])
+  @@index([patternId, order])
 }
 
 // タレント×STEPごとの現在の状態

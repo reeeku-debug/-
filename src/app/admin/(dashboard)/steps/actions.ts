@@ -14,7 +14,7 @@ function revalidateStepPaths() {
   revalidatePath("/admin/talents");
 }
 
-export async function createStepAction(formData: FormData): Promise<Result> {
+export async function createStepAction(patternId: string, formData: FormData): Promise<Result> {
   await requireAdminSession();
 
   const title = (formData.get("title") as string | null)?.trim();
@@ -25,16 +25,17 @@ export async function createStepAction(formData: FormData): Promise<Result> {
   const icon = (formData.get("icon") as string | null)?.trim() || "✅";
   const buttonLabel = (formData.get("buttonLabel") as string | null)?.trim() || "完了報告を送る";
 
-  const goal = await prisma.stepTemplate.findFirst({ where: { type: "GOAL" } });
-  const insertOrder = goal ? goal.order : (await prisma.stepTemplate.count()) + 1;
+  const goal = await prisma.stepTemplate.findFirst({ where: { patternId, type: "GOAL" } });
+  const insertOrder = goal ? goal.order : (await prisma.stepTemplate.count({ where: { patternId } })) + 1;
 
   await prisma.$transaction(async (tx) => {
     await tx.stepTemplate.updateMany({
-      where: { order: { gte: insertOrder } },
+      where: { patternId, order: { gte: insertOrder } },
       data: { order: { increment: 1 } },
     });
     await tx.stepTemplate.create({
       data: {
+        patternId,
         order: insertOrder,
         key: `step_${randomToken(8)}`,
         icon,
@@ -45,7 +46,7 @@ export async function createStepAction(formData: FormData): Promise<Result> {
     });
   });
 
-  await recomputeAllTalentsChain();
+  await recomputeAllTalentsChain(patternId);
   revalidateStepPaths();
   return { success: true };
 }
@@ -77,7 +78,7 @@ export async function toggleStepActiveAction(stepId: string): Promise<Result> {
     return { success: false, error: "GOALは無効化できません。" };
   }
   await prisma.stepTemplate.update({ where: { id: stepId }, data: { active: !step.active } });
-  await recomputeAllTalentsChain();
+  await recomputeAllTalentsChain(step.patternId);
   revalidateStepPaths();
   return { success: true };
 }
@@ -88,7 +89,7 @@ export async function deleteStepAction(stepId: string): Promise<Result> {
   if (step.type === "GOAL") {
     return { success: false, error: "GOALは削除できません。" };
   }
-  const count = await prisma.stepTemplate.count();
+  const count = await prisma.stepTemplate.count({ where: { patternId: step.patternId } });
   if (count <= 1) {
     return { success: false, error: "最後のSTEPは削除できません。" };
   }
@@ -96,12 +97,12 @@ export async function deleteStepAction(stepId: string): Promise<Result> {
   await prisma.$transaction(async (tx) => {
     await tx.stepTemplate.delete({ where: { id: stepId } });
     await tx.stepTemplate.updateMany({
-      where: { order: { gt: step.order } },
+      where: { patternId: step.patternId, order: { gt: step.order } },
       data: { order: { decrement: 1 } },
     });
   });
 
-  await recomputeAllTalentsChain();
+  await recomputeAllTalentsChain(step.patternId);
   revalidateStepPaths();
   return { success: true };
 }
@@ -117,8 +118,8 @@ export async function reorderStepAction(stepId: string, direction: "up" | "down"
   const neighbor = await prisma.stepTemplate.findFirst({
     where:
       direction === "up"
-        ? { order: { lt: step.order } }
-        : { order: { gt: step.order }, type: { not: "GOAL" } },
+        ? { patternId: step.patternId, order: { lt: step.order } }
+        : { patternId: step.patternId, order: { gt: step.order }, type: { not: "GOAL" } },
     orderBy: direction === "up" ? { order: "desc" } : { order: "asc" },
   });
 
@@ -131,7 +132,7 @@ export async function reorderStepAction(stepId: string, direction: "up" | "down"
     prisma.stepTemplate.update({ where: { id: neighbor.id }, data: { order: step.order } }),
   ]);
 
-  await recomputeAllTalentsChain();
+  await recomputeAllTalentsChain(step.patternId);
   revalidateStepPaths();
   return { success: true };
 }

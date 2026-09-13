@@ -5,7 +5,9 @@ import Link from "next/link";
 import { createTalentAction } from "@/app/admin/(dashboard)/talents/actions";
 import { CopyButton } from "@/components/copy-button";
 
-export function CreateTalentForm() {
+type PatternOption = { id: string; name: string; isDefault: boolean };
+
+export function CreateTalentForm({ patterns }: { patterns: PatternOption[] }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{
@@ -85,6 +87,24 @@ export function CreateTalentForm() {
           required
           className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"
         />
+      </div>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700">STEPパターン</label>
+        <select
+          name="patternId"
+          defaultValue={patterns.find((p) => p.isDefault)?.id ?? patterns[0]?.id}
+          className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"
+        >
+          {patterns.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+              {p.isDefault ? "（既定）" : ""}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-gray-400">
+          このタレントが進むロードマップです。登録後の変更はできません。STEP管理画面で新しいパターンを作成できます。
+        </p>
       </div>
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700">No.（任意・管理用）</label>

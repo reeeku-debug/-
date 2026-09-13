@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { createStepAction } from "@/app/admin/(dashboard)/steps/actions";
 
-export function CreateStepForm() {
+export function CreateStepForm({ patternId }: { patternId: string }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -14,7 +14,7 @@ export function CreateStepForm() {
     setError(null);
     setPending(true);
     const formData = new FormData(e.currentTarget);
-    const res = await createStepAction(formData);
+    const res = await createStepAction(patternId, formData);
     setPending(false);
     if (!res.success) {
       setError(res.error);

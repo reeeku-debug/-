@@ -5,16 +5,25 @@ import { StatCard } from "@/components/admin/stat-card";
 import { TalentProgressTable, type TalentProgressRow } from "@/components/admin/talent-progress-table";
 
 export default async function AdminDashboardPage() {
-  const [talents, steps, pendingCount] = await Promise.all([
+  const [talents, allSteps, stepCount, pendingCount] = await Promise.all([
     prisma.talent.findMany({
       orderBy: { createdAt: "desc" },
       include: { stepStatuses: true },
     }),
     prisma.stepTemplate.findMany({ where: { active: true }, orderBy: { order: "asc" } }),
+    prisma.stepTemplate.count({ where: { active: true } }),
     prisma.stepReport.count({ where: { status: "PENDING" } }),
   ]);
 
+  const stepsByPattern = new Map<string, typeof allSteps>();
+  for (const s of allSteps) {
+    const list = stepsByPattern.get(s.patternId) ?? [];
+    list.push(s);
+    stepsByPattern.set(s.patternId, list);
+  }
+
   const rows: TalentProgressRow[] = talents.map((t) => {
+    const steps = stepsByPattern.get(t.patternId) ?? [];
     const statusMap = new Map(t.stepStatuses.map((s) => [s.stepTemplateId, s.status]));
     const summary = summarizeTalentProgress(steps, statusMap);
     return {
@@ -46,7 +55,7 @@ export default async function AdminDashboardPage() {
         <StatCard label="タレント数" value={talents.length} icon="👤" />
         <StatCard label="確認待ちの報告" value={pendingCount} icon="📨" />
         <StatCard label="GOAL達成" value={goalCount} icon="🏆" />
-        <StatCard label="登録STEP数" value={steps.length} icon="🛠️" />
+        <StatCard label="登録STEP数" value={stepCount} icon="🛠️" />
       </div>
 
       {pendingCount > 0 && (

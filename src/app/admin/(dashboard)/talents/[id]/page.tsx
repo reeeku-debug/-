@@ -12,11 +12,11 @@ import { ResetPasswordButton } from "@/components/admin/reset-password-button";
 import { CopyButton } from "@/components/copy-button";
 
 export default async function TalentDetailPage({ params }: { params: { id: string } }) {
-  const talent = await prisma.talent.findUnique({ where: { id: params.id } });
+  const talent = await prisma.talent.findUnique({ where: { id: params.id }, include: { pattern: true } });
   if (!talent) notFound();
 
   const [steps, statuses, pendingReports, historyReports] = await Promise.all([
-    prisma.stepTemplate.findMany({ where: { active: true }, orderBy: { order: "asc" } }),
+    prisma.stepTemplate.findMany({ where: { patternId: talent.patternId, active: true }, orderBy: { order: "asc" } }),
     prisma.talentStepStatus.findMany({ where: { talentId: talent.id } }),
     prisma.stepReport.findMany({
       where: { talentId: talent.id, status: "PENDING" },
@@ -97,6 +97,10 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
               <span className="truncate font-mono text-xs">{talentUrl}</span>
               <CopyButton value={talentUrl} />
             </dd>
+          </div>
+          <div>
+            <dt className="text-xs text-gray-400">STEPパターン</dt>
+            <dd>{talent.pattern.name}</dd>
           </div>
           <div>
             <dt className="text-xs text-gray-400">活動開始月</dt>

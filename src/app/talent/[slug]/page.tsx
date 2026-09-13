@@ -14,7 +14,7 @@ export default async function TalentRoadmapPage({ params }: { params: { slug: st
   }
 
   const steps = await prisma.stepTemplate.findMany({
-    where: { active: true },
+    where: { patternId: talent.patternId, active: true },
     orderBy: { order: "asc" },
   });
   const statuses = await prisma.talentStepStatus.findMany({ where: { talentId: talent.id } });
