@@ -41,7 +41,12 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
           <Link href="/admin/talents" className="text-xs text-gray-400 hover:underline">
             ← タレント一覧
           </Link>
-          <h1 className="mt-1 text-xl font-bold">{talent.name}さんの進捗</h1>
+          <h1 className="mt-1 text-xl font-bold">
+            {talent.managementNo && (
+              <span className="mr-2 font-mono text-base text-gray-400">No.{talent.managementNo}</span>
+            )}
+            {talent.name}さんの進捗
+          </h1>
           {talent.activityName && <p className="text-sm text-gray-500">活動名: {talent.activityName}</p>}
         </div>
         <div className="flex gap-2">
@@ -75,6 +80,10 @@ export default async function TalentDetailPage({ params }: { params: { id: strin
       <div className="rounded-2xl border border-gray-200 bg-white p-5">
         <h2 className="text-sm font-semibold text-gray-500">ログイン情報</h2>
         <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+          <div>
+            <dt className="text-xs text-gray-400">No.</dt>
+            <dd className="font-mono">{talent.managementNo || "-"}</dd>
+          </div>
           <div>
             <dt className="text-xs text-gray-400">ログインID</dt>
             <dd className="flex items-center gap-2">

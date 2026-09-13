@@ -6,6 +6,7 @@ import { DeleteTalentButton } from "./delete-talent-button";
 type TalentRow = {
   id: string;
   name: string;
+  managementNo: string | null;
   loginId: string;
   slug: string;
   activityName: string | null;
@@ -26,6 +27,7 @@ export function TalentManageTable({ talents, origin }: { talents: TalentRow[]; o
       <table className="w-full min-w-[720px] text-left text-sm">
         <thead className="border-b border-gray-200 bg-gray-50 text-xs text-gray-500">
           <tr>
+            <th className="px-4 py-3 font-semibold">No.</th>
             <th className="px-4 py-3 font-semibold">タレント名</th>
             <th className="px-4 py-3 font-semibold">ログインID</th>
             <th className="px-4 py-3 font-semibold">専用URL</th>
@@ -36,6 +38,7 @@ export function TalentManageTable({ talents, origin }: { talents: TalentRow[]; o
         <tbody className="divide-y divide-gray-100">
           {talents.map((t) => (
             <tr key={t.id} className="hover:bg-gray-50">
+              <td className="px-4 py-3 font-mono text-xs text-gray-500">{t.managementNo || "-"}</td>
               <td className="px-4 py-3">
                 <p className="font-semibold text-gray-900">{t.name}</p>
                 {t.activityName && <p className="text-xs text-gray-400">{t.activityName}</p>}

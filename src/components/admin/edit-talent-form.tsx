@@ -7,6 +7,7 @@ import { updateTalentInfoAction } from "@/app/admin/(dashboard)/talents/[id]/act
 type TalentInput = {
   id: string;
   name: string;
+  managementNo: string | null;
   activityName: string | null;
   firstStreamDate: string | null;
   notes: string | null;
@@ -42,6 +43,16 @@ export function EditTalentForm({ talent }: { talent: TalentInput }) {
           required
           className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"
         />
+      </div>
+      <div>
+        <label className="mb-1 block text-sm font-medium text-gray-700">No.（管理用）</label>
+        <input
+          name="managementNo"
+          defaultValue={talent.managementNo ?? ""}
+          placeholder="例: 001"
+          className="w-full rounded-lg border border-gray-300 px-4 py-2.5 font-mono focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"
+        />
+        <p className="mt-1 text-xs text-gray-400">マネージャー側でのみ表示されます。タレント本人には見えません。</p>
       </div>
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700">活動名</label>

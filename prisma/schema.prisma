@@ -35,6 +35,7 @@ model Talent {
   slug         String  @unique // 専用URL (/talent/[slug]) 用トークン
 
   name             String // タレント名（管理用の呼び名）
+  managementNo     String? // 管理番号（No.）。マネージャー側でのみ確認・編集可能、タレント側には表示しない
   activityName     String? // 活動名
   firstStreamDate  DateTime? // 初配信予定日
   notes            String? // 備考（管理者メモ）
