@@ -6,7 +6,7 @@ const UPLOAD_DIR = path.join(process.cwd(), "public", "uploads");
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
-/** 証拠画像をローカルの public/uploads に保存し、公開URLパスを返す */
+/** 画像をローカルの public/uploads に保存し、公開URLパスを返す */
 export async function saveUploadedImage(file: File): Promise<string> {
   if (!ALLOWED_TYPES.includes(file.type)) {
     throw new Error("対応していない画像形式です（JPEG/PNG/WEBP/GIFのみ）。");

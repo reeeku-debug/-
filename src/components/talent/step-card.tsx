@@ -151,7 +151,7 @@ export function RoadmapStepCard({
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">
-                証拠画像（任意）
+                画像（任意）
               </label>
               <input
                 type="file"

@@ -110,7 +110,7 @@ export function ReportHistoryItem({ slug, report }: { slug: string; report: Repo
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">証拠画像</label>
+            <label className="mb-1 block text-xs font-medium text-gray-600">画像</label>
             <input
               type="file"
               name="image"
