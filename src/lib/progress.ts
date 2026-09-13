@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 
 export type StepStatus = "LOCKED" | "CHALLENGE" | "REVIEW" | "CLEAR";
 
+type StepForBlocks = { id: string; order: number; requiresReport: boolean; parallelWithPrevious: boolean };
+
 // セキュリティ上の大前提：
 // これらの関数だけが進捗（TalentStepStatus）を書き換える。
 // タレント側から呼び出せるのは submitReport のみで、それも
@@ -9,33 +11,59 @@ export type StepStatus = "LOCKED" | "CHALLENGE" | "REVIEW" | "CLEAR";
 // CLEARへ進める（＝進捗を確定する）操作はマネージャー用関数のみが行う。
 
 /**
+ * 順番に並んだSTEPを「ブロック」単位にまとめる。
+ * parallelWithPrevious=false のSTEPは新しいブロックの先頭（＝ターニングポイント）、
+ * true のSTEPは直前のブロックに合流する（＝同じタイミングで開放され、並行して報告できる）。
+ */
+function computeBlocks<T extends StepForBlocks>(steps: T[]): T[][] {
+  const blocks: T[][] = [];
+  for (const step of steps) {
+    if (blocks.length === 0 || !step.parallelWithPrevious) {
+      blocks.push([step]);
+    } else {
+      blocks[blocks.length - 1].push(step);
+    }
+  }
+  return blocks;
+}
+
+/**
  * 新規タレント作成時に、そのタレントが使うSTEPパターンの有効STEP全件分の
- * ステータス行を作成する。先頭STEPのみ CHALLENGE、それ以外は LOCKED。
+ * ステータス行を作成する。先頭ブロックのSTEPのみ CHALLENGE（報告不要なら即CLEAR）、
+ * それ以外は LOCKED。
  */
 export async function initializeTalentSteps(talentId: string, patternId: string) {
   const steps = await prisma.stepTemplate.findMany({
     where: { patternId, active: true },
     orderBy: { order: "asc" },
   });
+  const blocks = computeBlocks(steps);
 
-  await prisma.$transaction(
-    steps.map((step, index) =>
-      prisma.talentStepStatus.upsert({
+  const ops = blocks.flatMap((block, blockIndex) =>
+    block.map((step) => {
+      const isFirstBlock = blockIndex === 0;
+      const status: StepStatus = isFirstBlock ? (step.requiresReport ? "CHALLENGE" : "CLEAR") : "LOCKED";
+      return prisma.talentStepStatus.upsert({
         where: { talentId_stepTemplateId: { talentId, stepTemplateId: step.id } },
         create: {
           talentId,
           stepTemplateId: step.id,
-          status: index === 0 ? "CHALLENGE" : "LOCKED",
+          status,
+          clearedAt: status === "CLEAR" ? new Date() : null,
         },
         update: {},
-      })
-    )
+      });
+    })
   );
+
+  await prisma.$transaction(ops);
 }
 
 /**
- * 指定STEPをCLEARにし、次のSTEPを解放する（内部専用・マネージャー操作からのみ呼ばれる）。
- * 次のSTEPが「報告不要」(GOAL等)の場合は連鎖的にCLEARにする。
+ * 指定STEPをCLEARにし、そのSTEPが属するブロックが全てCLEARになっていれば
+ * 次のブロックを解放する（内部専用・マネージャー操作からのみ呼ばれる）。
+ * 同じブロック内の他のSTEPが未完了の場合は、そのまま並行して開放され続ける。
+ * 次のブロックが「報告不要」(GOAL等)のSTEPのみの場合は連鎖的にCLEARにする。
  */
 async function clearStepAndUnlockNext(talentId: string, stepTemplateId: string) {
   const step = await prisma.stepTemplate.findUniqueOrThrow({ where: { id: stepTemplateId } });
@@ -46,37 +74,53 @@ async function clearStepAndUnlockNext(talentId: string, stepTemplateId: string) 
     update: { status: "CLEAR", clearedAt: new Date() },
   });
 
-  let cursorOrder = step.order;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const next = await prisma.stepTemplate.findFirst({
-      where: { patternId: step.patternId, active: true, order: { gt: cursorOrder } },
-      orderBy: { order: "asc" },
-    });
-    if (!next) break;
+  const steps = await prisma.stepTemplate.findMany({
+    where: { patternId: step.patternId, active: true },
+    orderBy: { order: "asc" },
+  });
+  const blocks = computeBlocks(steps);
+  const blockIndex = blocks.findIndex((b) => b.some((s) => s.id === stepTemplateId));
+  if (blockIndex === -1) return;
 
-    if (!next.requiresReport) {
-      // GOAL等、報告不要のSTEPは自動的にCLEARにして連鎖継続
-      await prisma.talentStepStatus.upsert({
-        where: { talentId_stepTemplateId: { talentId, stepTemplateId: next.id } },
-        create: { talentId, stepTemplateId: next.id, status: "CLEAR", clearedAt: new Date() },
-        update: { status: "CLEAR", clearedAt: new Date() },
+  const blockStepIds = blocks[blockIndex].map((s) => s.id);
+  const blockStatuses = await prisma.talentStepStatus.findMany({
+    where: { talentId, stepTemplateId: { in: blockStepIds } },
+  });
+  const blockStatusMap = new Map(blockStatuses.map((s) => [s.stepTemplateId, s.status]));
+  const blockFullyCleared = blocks[blockIndex].every((s) => blockStatusMap.get(s.id) === "CLEAR");
+  if (!blockFullyCleared) return; // 同じブロックの他のSTEPがまだ完了していないので、次のブロックはまだ開放しない
+
+  // 次のブロックを順に開放する。報告不要のSTEPのみのブロックは自動的にCLEARにして連鎖継続。
+  let cursor = blockIndex + 1;
+  while (cursor < blocks.length) {
+    const block = blocks[cursor];
+    let allAutoCleared = true;
+
+    for (const s of block) {
+      if (!s.requiresReport) {
+        await prisma.talentStepStatus.upsert({
+          where: { talentId_stepTemplateId: { talentId, stepTemplateId: s.id } },
+          create: { talentId, stepTemplateId: s.id, status: "CLEAR", clearedAt: new Date() },
+          update: { status: "CLEAR", clearedAt: new Date() },
+        });
+        continue;
+      }
+
+      allAutoCleared = false;
+      const existing = await prisma.talentStepStatus.findUnique({
+        where: { talentId_stepTemplateId: { talentId, stepTemplateId: s.id } },
       });
-      cursorOrder = next.order;
-      continue;
+      if (!existing || existing.status === "LOCKED") {
+        await prisma.talentStepStatus.upsert({
+          where: { talentId_stepTemplateId: { talentId, stepTemplateId: s.id } },
+          create: { talentId, stepTemplateId: s.id, status: "CHALLENGE" },
+          update: { status: "CHALLENGE" },
+        });
+      }
     }
 
-    const existing = await prisma.talentStepStatus.findUnique({
-      where: { talentId_stepTemplateId: { talentId, stepTemplateId: next.id } },
-    });
-    if (!existing || existing.status === "LOCKED") {
-      await prisma.talentStepStatus.upsert({
-        where: { talentId_stepTemplateId: { talentId, stepTemplateId: next.id } },
-        create: { talentId, stepTemplateId: next.id, status: "CHALLENGE" },
-        update: { status: "CHALLENGE" },
-      });
-    }
-    break;
+    if (!allAutoCleared) break; // 報告が必要なSTEPを開放したので連鎖はここで止まる
+    cursor++; // このブロックは全て自動CLEARだったので、さらに次のブロックも確認する
   }
 }
 
@@ -114,7 +158,7 @@ export async function submitReport(
   ]);
 }
 
-/** マネージャー：完了報告を承認する → STEPがCLEARになり、次のSTEPが解放される */
+/** マネージャー：完了報告を承認する → STEPがCLEARになり、ブロックが揃えば次のブロックが解放される */
 export async function approveReport(reportId: string, adminId: string, reviewComment?: string) {
   const report = await prisma.stepReport.findUniqueOrThrow({ where: { id: reportId } });
   if (report.status !== "PENDING") {
@@ -165,7 +209,7 @@ export async function adminForceClear(talentId: string, stepTemplateId: string) 
   await clearStepAndUnlockNext(talentId, stepTemplateId);
 }
 
-/** マネージャー：STEPを未達成（挑戦中）に戻す。以降のSTEPは連鎖的にロックされる。 */
+/** マネージャー：STEPを未達成（挑戦中）に戻す。以降のブロックは連鎖的にロックされる。 */
 export async function adminRevertToChallenge(talentId: string, stepTemplateId: string) {
   const step = await prisma.stepTemplate.findUniqueOrThrow({ where: { id: stepTemplateId } });
 
@@ -175,10 +219,10 @@ export async function adminRevertToChallenge(talentId: string, stepTemplateId: s
     update: { status: "CHALLENGE", clearedAt: null },
   });
 
-  await lockAllAfter(talentId, step.patternId, step.order);
+  await lockBlocksAfter(talentId, step.patternId, stepTemplateId);
 }
 
-/** マネージャー：STEPを強制的にロックする。以降のSTEPも連鎖的にロックされる。 */
+/** マネージャー：STEPを強制的にロックする。以降のブロックも連鎖的にロックされる。 */
 export async function adminForceLock(talentId: string, stepTemplateId: string) {
   const step = await prisma.stepTemplate.findUniqueOrThrow({ where: { id: stepTemplateId } });
 
@@ -188,13 +232,20 @@ export async function adminForceLock(talentId: string, stepTemplateId: string) {
     update: { status: "LOCKED", clearedAt: null },
   });
 
-  await lockAllAfter(talentId, step.patternId, step.order);
+  await lockBlocksAfter(talentId, step.patternId, stepTemplateId);
 }
 
-async function lockAllAfter(talentId: string, patternId: string, order: number) {
-  const laterSteps = await prisma.stepTemplate.findMany({
-    where: { patternId, active: true, order: { gt: order } },
+/** 指定STEPが属するブロックより後ろの全ブロックを強制的にLOCKEDに戻す */
+async function lockBlocksAfter(talentId: string, patternId: string, stepTemplateId: string) {
+  const steps = await prisma.stepTemplate.findMany({
+    where: { patternId, active: true },
+    orderBy: { order: "asc" },
   });
+  const blocks = computeBlocks(steps);
+  const blockIndex = blocks.findIndex((b) => b.some((s) => s.id === stepTemplateId));
+  if (blockIndex === -1) return;
+
+  const laterSteps = blocks.slice(blockIndex + 1).flat();
   if (laterSteps.length === 0) return;
 
   await prisma.$transaction(
@@ -209,7 +260,7 @@ async function lockAllAfter(talentId: string, patternId: string, order: number) 
 }
 
 /**
- * STEPマスタの構成変更（追加・削除・並び替え・有効/無効切替）後に、
+ * STEPマスタの構成変更（追加・削除・並び替え・有効/無効切替・同時申請設定の変更）後に、
  * 該当パターンを使う全タレントの進捗ステータスを整合性のある状態へ再計算する。
  * patternIdを省略すると全タレントが対象になる。
  */
@@ -228,50 +279,54 @@ export async function recomputeTalentChain(talentId: string, patternId: string) 
     where: { patternId, active: true },
     orderBy: { order: "asc" },
   });
+  const blocks = computeBlocks(steps);
   const statuses = await prisma.talentStepStatus.findMany({ where: { talentId } });
   const statusMap = new Map(statuses.map((s) => [s.stepTemplateId, s.status]));
 
-  let previousCleared = true;
+  let previousBlockOpen = true;
   const ops = [];
 
-  for (const step of steps) {
-    const existing = statusMap.get(step.id);
+  for (const block of blocks) {
+    let blockFullyCleared = true;
 
-    if (existing === "CLEAR") {
-      previousCleared = true;
-      continue;
-    }
-    if (existing === "REVIEW") {
-      previousCleared = false;
-      continue;
+    for (const step of block) {
+      const existing = statusMap.get(step.id);
+      let stepCleared: boolean;
+
+      if (existing === "CLEAR") {
+        stepCleared = true;
+      } else if (existing === "REVIEW") {
+        stepCleared = false;
+      } else {
+        const nextStatus: StepStatus = previousBlockOpen
+          ? step.requiresReport
+            ? "CHALLENGE"
+            : "CLEAR"
+          : "LOCKED";
+        if (existing !== nextStatus) {
+          ops.push(
+            prisma.talentStepStatus.upsert({
+              where: { talentId_stepTemplateId: { talentId, stepTemplateId: step.id } },
+              create: {
+                talentId,
+                stepTemplateId: step.id,
+                status: nextStatus,
+                clearedAt: nextStatus === "CLEAR" ? new Date() : null,
+              },
+              update: {
+                status: nextStatus,
+                clearedAt: nextStatus === "CLEAR" ? new Date() : null,
+              },
+            })
+          );
+        }
+        stepCleared = nextStatus === "CLEAR";
+      }
+
+      if (!stepCleared) blockFullyCleared = false;
     }
 
-    let nextStatus: StepStatus;
-    if (previousCleared) {
-      nextStatus = step.requiresReport ? "CHALLENGE" : "CLEAR";
-    } else {
-      nextStatus = "LOCKED";
-    }
-
-    if (existing !== nextStatus) {
-      ops.push(
-        prisma.talentStepStatus.upsert({
-          where: { talentId_stepTemplateId: { talentId, stepTemplateId: step.id } },
-          create: {
-            talentId,
-            stepTemplateId: step.id,
-            status: nextStatus,
-            clearedAt: nextStatus === "CLEAR" ? new Date() : null,
-          },
-          update: {
-            status: nextStatus,
-            clearedAt: nextStatus === "CLEAR" ? new Date() : null,
-          },
-        })
-      );
-    }
-
-    previousCleared = nextStatus === "CLEAR";
+    previousBlockOpen = blockFullyCleared;
   }
 
   if (ops.length > 0) {

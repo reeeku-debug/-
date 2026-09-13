@@ -84,6 +84,10 @@ model StepTemplate {
   requiresReport Boolean @default(true) // GOALはfalse（前STEP承認で自動解放）
   active         Boolean @default(true)
 
+  // false（デフォルト）＝ターニングポイント。前のSTEPがCLEARになるまでこのSTEPは開放されない。
+  // true＝前のSTEPと同時に開放され、順不同・並行して報告できる（連続する複数STEPをまとめて1ブロックとして扱う）。
+  parallelWithPrevious Boolean @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

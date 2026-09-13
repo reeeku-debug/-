@@ -18,6 +18,7 @@ type StepLite = {
   buttonLabel: string;
   type: string;
   active: boolean;
+  parallelWithPrevious: boolean;
 };
 
 export function StepManageCard({
@@ -78,7 +79,20 @@ export function StepManageCard({
           </span>
           <span className="text-lg leading-none">{step.icon}</span>
           <div>
-            <p className="font-bold">{step.title}</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <p className="font-bold">{step.title}</p>
+              {!isGoal && !isFirst && (
+                <span
+                  className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
+                    step.parallelWithPrevious
+                      ? "border-sky-300 bg-sky-50 text-sky-700"
+                      : "border-gray-200 bg-gray-50 text-gray-400"
+                  }`}
+                >
+                  {step.parallelWithPrevious ? "🔗 同時申請可" : "🚧 ターニングポイント"}
+                </span>
+              )}
+            </div>
             <p className="mt-0.5 whitespace-pre-line text-xs text-gray-500">{step.description}</p>
             {!step.active && <p className="mt-1 text-xs font-semibold text-gray-400">（無効）</p>}
           </div>
@@ -174,6 +188,23 @@ export function StepManageCard({
                 className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
               />
             </div>
+          )}
+          {!isGoal && !isFirst && (
+            <label className="flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                name="parallelWithPrevious"
+                defaultChecked={step.parallelWithPrevious}
+                className="mt-0.5"
+              />
+              <span>
+                前のSTEPと同じタイミングで開放し、並行して申請できるようにする
+                <br />
+                <span className="text-gray-400">
+                  オフ＝ターニングポイント。前のSTEPが完了するまでこのSTEPは開放されません。
+                </span>
+              </span>
+            </label>
           )}
           <div className="mt-1 flex gap-2">
             <button

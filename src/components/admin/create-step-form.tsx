@@ -64,6 +64,16 @@ export function CreateStepForm({ patternId }: { patternId: string }) {
           className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
         />
       </div>
+      <label className="flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+        <input type="checkbox" name="parallelWithPrevious" className="mt-0.5" />
+        <span>
+          前のSTEPと同じタイミングで開放し、並行して申請できるようにする
+          <br />
+          <span className="text-gray-400">
+            オフのまま＝ターニングポイント。前のSTEPが完了するまでこのSTEPは開放されません。
+          </span>
+        </span>
+      </label>
       {error && <p className="text-xs text-red-600">{error}</p>}
       <div className="flex gap-2">
         <button
