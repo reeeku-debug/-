@@ -24,11 +24,13 @@ type StepLite = {
 };
 
 export function RoadmapStepCard({
+  slug,
   step,
   status,
   latestReport,
   isLast,
 }: {
+  slug: string;
   step: StepLite;
   status: StepStatus;
   latestReport: LatestReport;
@@ -137,6 +139,7 @@ export function RoadmapStepCard({
         {status === "CHALLENGE" && open && (
           <form ref={formRef} onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
             <input type="hidden" name="stepTemplateId" value={step.id} />
+            <input type="hidden" name="slug" value={slug} />
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">コメント</label>
               <textarea

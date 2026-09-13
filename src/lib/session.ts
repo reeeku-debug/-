@@ -9,12 +9,3 @@ export async function requireAdminSession() {
   }
   return session;
 }
-
-/** タレント専用のServer Actionで使用。権限がなければ例外を投げる。 */
-export async function requireTalentSession() {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "TALENT") {
-    throw new Error("ログインが必要です。");
-  }
-  return session;
-}

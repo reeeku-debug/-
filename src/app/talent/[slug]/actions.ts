@@ -1,8 +1,6 @@
 "use server";
 
-import { getServerSession } from "next-auth";
 import { revalidatePath } from "next/cache";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { submitReport } from "@/lib/progress";
 import { saveUploadedImage } from "@/lib/upload";
@@ -11,17 +9,19 @@ type ActionResult = { success: true } | { success: false; error: string };
 
 /**
  * タレントによる完了報告の送信。
- * セキュリティ上、talentIdは常にセッションから取得し、クライアントからは
- * 一切受け取らない（他人の進捗を書き換えられないようにするため）。
+ * 専用URL（slug）自体がアクセストークンとして機能するため、ログインセッションは
+ * 要求しない。slugからタレントを一意に特定し、そのtalentIdのみを使って更新する
+ * （フォームから直接talentIdを受け取ることはない）。
  */
 export async function submitStepReportAction(formData: FormData): Promise<ActionResult> {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "TALENT") {
-    return { success: false, error: "ログインが必要です。" };
+  const slug = formData.get("slug");
+  const stepTemplateId = formData.get("stepTemplateId");
+  if (typeof slug !== "string" || !slug || typeof stepTemplateId !== "string" || !stepTemplateId) {
+    return { success: false, error: "不正なリクエストです。" };
   }
 
-  const stepTemplateId = formData.get("stepTemplateId");
-  if (typeof stepTemplateId !== "string" || !stepTemplateId) {
+  const talent = await prisma.talent.findUnique({ where: { slug } });
+  if (!talent) {
     return { success: false, error: "不正なリクエストです。" };
   }
 
@@ -38,13 +38,12 @@ export async function submitStepReportAction(formData: FormData): Promise<Action
       imageUrl = await saveUploadedImage(imageFile);
     }
 
-    await submitReport(session.user.id, stepTemplateId, { comment, relatedUrl, imageUrl });
+    await submitReport(talent.id, stepTemplateId, { comment, relatedUrl, imageUrl });
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : "送信に失敗しました。" };
   }
 
-  const talent = await prisma.talent.findUnique({ where: { id: session.user.id } });
-  if (talent) revalidatePath(`/talent/${talent.slug}`);
+  revalidatePath(`/talent/${talent.slug}`);
 
   return { success: true };
 }

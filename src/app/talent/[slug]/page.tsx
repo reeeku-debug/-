@@ -1,25 +1,15 @@
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
+import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ProgressHeader } from "@/components/talent/progress-header";
 import { GoalBanner } from "@/components/talent/goal-banner";
 import { RoadmapStepCard, type StepStatus } from "@/components/talent/step-card";
-import { SignOutButton } from "@/components/sign-out-button";
 
 export default async function TalentRoadmapPage({ params }: { params: { slug: string } }) {
-  const session = await getServerSession(authOptions);
-  if (!session || session.user.role !== "TALENT") {
-    redirect("/login");
-  }
-
-  const talent = await prisma.talent.findUnique({ where: { id: session.user.id } });
+  // この専用URL（slug）自体がアクセストークンとして機能するため、
+  // ログインは不要。slugが一致するタレントのデータのみを表示する。
+  const talent = await prisma.talent.findUnique({ where: { slug: params.slug } });
   if (!talent) {
-    redirect("/login");
-  }
-  // 念のための二重チェック（本来はmiddlewareで自分のslug以外へは来ない）
-  if (talent.slug !== params.slug) {
-    redirect(`/talent/${talent.slug}`);
+    notFound();
   }
 
   const steps = await prisma.stepTemplate.findMany({
@@ -45,9 +35,8 @@ export default async function TalentRoadmapPage({ params }: { params: { slug: st
 
   return (
     <main className="mx-auto min-h-screen max-w-lg px-4 pb-16 pt-8">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6">
         <p className="text-sm font-semibold text-gray-400">VTuber活動ロードマップ</p>
-        <SignOutButton />
       </div>
 
       <ProgressHeader name={talent.name} total={normalSteps.length} cleared={clearedCount} />
@@ -65,6 +54,7 @@ export default async function TalentRoadmapPage({ params }: { params: { slug: st
         {steps.map((step, i) => (
           <RoadmapStepCard
             key={step.id}
+            slug={talent.slug}
             step={step}
             status={statusMap.get(step.id) ?? "LOCKED"}
             latestReport={latestReportMap.get(step.id) ?? null}
