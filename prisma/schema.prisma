@@ -154,6 +154,7 @@ model NotificationSetting {
 
   googleChatWebhookUrl String? // Google Chat の Incoming Webhook URL
   notifyOnReportSubmit Boolean @default(true) // タレントが完了報告を送信した時に通知する
+  dailyDigestEnabled   Boolean @default(true) // 毎日13時に、未承認の完了報告をまとめて通知する
 
   updatedAt DateTime @updatedAt
 }

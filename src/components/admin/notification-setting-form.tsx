@@ -9,9 +9,11 @@ import {
 export function NotificationSettingForm({
   webhookUrl: initialWebhookUrl,
   notifyOnReportSubmit,
+  dailyDigestEnabled,
 }: {
   webhookUrl: string;
   notifyOnReportSubmit: boolean;
+  dailyDigestEnabled: boolean;
 }) {
   const [webhookUrl, setWebhookUrl] = useState(initialWebhookUrl);
   const [pending, setPending] = useState(false);
@@ -63,7 +65,23 @@ export function NotificationSettingForm({
           defaultChecked={notifyOnReportSubmit}
           className="mt-0.5"
         />
-        タレントが完了報告を送信した時に通知する
+        タレントが完了報告を送信した時に、その都度通知する
+      </label>
+
+      <label className="flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
+        <input
+          type="checkbox"
+          name="dailyDigestEnabled"
+          defaultChecked={dailyDigestEnabled}
+          className="mt-0.5"
+        />
+        <span>
+          毎日13時に、未承認の完了報告をまとめて1通で通知する
+          <br />
+          <span className="text-gray-400">
+            その時点で確認待ちのタレント・STEPを一覧にして1回だけ送信します（0件の日は送信しません）。
+          </span>
+        </span>
       </label>
 
       {error && <p className="text-sm text-red-600">{error}</p>}

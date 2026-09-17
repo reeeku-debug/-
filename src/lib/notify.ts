@@ -34,6 +34,38 @@ export async function notifyReportSubmitted(params: {
   }
 }
 
+/**
+ * 未承認（PENDING）の完了報告をまとめて1通のGoogle Chatメッセージで通知する。
+ * 毎日13時のcronジョブから呼ばれる。対象が0件、またはWebhook未設定/OFFの場合は送信しない。
+ */
+export async function sendPendingReportsDigest(origin: string): Promise<{ sent: boolean; count: number }> {
+  const settings = await prisma.notificationSetting.findFirst();
+  if (!settings?.googleChatWebhookUrl || !settings.dailyDigestEnabled) {
+    return { sent: false, count: 0 };
+  }
+
+  const pending = await prisma.stepReport.findMany({
+    where: { status: "PENDING" },
+    orderBy: { submittedAt: "asc" },
+    include: { talent: true, stepTemplate: true },
+  });
+  if (pending.length === 0) {
+    return { sent: false, count: 0 };
+  }
+
+  const lines = pending.map((r) => {
+    const noPart = r.talent.managementNo ? `No.${r.talent.managementNo} ` : "";
+    return `・${noPart}${r.talent.name}さん - 「${r.stepTemplate.title}」`;
+  });
+  const text =
+    `🔔 未承認の完了報告が ${pending.length} 件あります\n` +
+    lines.join("\n") +
+    `\n\n確認: ${origin}/admin/reports`;
+
+  await postToGoogleChat(settings.googleChatWebhookUrl, text);
+  return { sent: true, count: pending.length };
+}
+
 /** マネージャーの通知設定画面から使う、疎通確認用のテスト送信。成否をそのまま返す。 */
 export async function sendTestGoogleChatMessage(
   webhookUrl: string

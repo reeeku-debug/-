@@ -12,15 +12,18 @@ export async function updateNotificationSettingAction(formData: FormData): Promi
 
   const googleChatWebhookUrl = (formData.get("googleChatWebhookUrl") as string | null)?.trim() || null;
   const notifyOnReportSubmit = formData.get("notifyOnReportSubmit") === "on";
+  const dailyDigestEnabled = formData.get("dailyDigestEnabled") === "on";
 
   const existing = await prisma.notificationSetting.findFirst();
   if (existing) {
     await prisma.notificationSetting.update({
       where: { id: existing.id },
-      data: { googleChatWebhookUrl, notifyOnReportSubmit },
+      data: { googleChatWebhookUrl, notifyOnReportSubmit, dailyDigestEnabled },
     });
   } else {
-    await prisma.notificationSetting.create({ data: { googleChatWebhookUrl, notifyOnReportSubmit } });
+    await prisma.notificationSetting.create({
+      data: { googleChatWebhookUrl, notifyOnReportSubmit, dailyDigestEnabled },
+    });
   }
 
   revalidatePath("/admin/settings");
