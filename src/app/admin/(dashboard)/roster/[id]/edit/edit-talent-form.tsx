@@ -18,6 +18,7 @@ export default function EditTalentForm({
     lastNameKana: talent.lastNameKana ?? "",
     firstNameKana: talent.firstNameKana ?? "",
     gender: talent.gender ?? "",
+    age: talent.age != null ? String(talent.age) : "",
     companyId: talent.companyId,
     postalCode: talent.postalCode ?? "",
     prefecture: talent.prefecture ?? "",
@@ -29,6 +30,7 @@ export default function EditTalentForm({
     accountType: talent.bankAccount?.accountType ?? "",
     accountNumber: talent.bankAccount?.accountNumber ?? "",
     accountHolder: talent.bankAccount?.accountHolder ?? "",
+    needsReview: talent.needsReview,
   };
 
   return (
@@ -36,6 +38,7 @@ export default function EditTalentForm({
       initialData={initialData}
       companies={companies}
       showStatus
+      reviewNote={talent.reviewNote}
       onSubmit={(input) => updateTalent(talent.id, input)}
       submitLabel="保存する"
     />

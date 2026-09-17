@@ -4,19 +4,29 @@ import { searchTalentRoster } from "@/lib/roster";
 import { GENDER_OPTIONS, PAYMENT_STATUS_OPTIONS, TALENT_STATUS_OPTIONS } from "@/lib/constants";
 import TalentRosterTable from "@/components/admin/talent-roster-table";
 
-export default async function RosterPage({
-  searchParams,
-}: {
-  searchParams: {
-    q?: string;
-    companyId?: string;
-    gender?: string;
-    status?: string;
-    paymentStatus?: string;
-    registeredMonth?: string;
-  };
-}) {
-  const [talents, companies] = await Promise.all([
+interface RosterSearchParams {
+  q?: string;
+  companyId?: string;
+  gender?: string;
+  status?: string;
+  paymentStatus?: string;
+  registeredMonth?: string;
+  needsReview?: string;
+  page?: string;
+}
+
+function pageHref(searchParams: RosterSearchParams, page: number): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (key !== "page" && value) params.set(key, value);
+  }
+  if (page > 1) params.set("page", String(page));
+  const qs = params.toString();
+  return qs ? `/admin/roster?${qs}` : "/admin/roster";
+}
+
+export default async function RosterPage({ searchParams }: { searchParams: RosterSearchParams }) {
+  const [{ talents, total, page, totalPages }, companies] = await Promise.all([
     searchTalentRoster(searchParams),
     prisma.company.findMany({ orderBy: { name: "asc" } }),
   ]);
@@ -26,7 +36,7 @@ export default async function RosterPage({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold">タレント一覧</h1>
-          <p className="text-sm text-gray-500">全 {talents.length} 件</p>
+          <p className="text-sm text-gray-500">全 {total} 件</p>
         </div>
         <Link href="/admin/roster/new" className="btn-primary">
           ＋タレントを登録
@@ -80,6 +90,10 @@ export default async function RosterPage({
           className="field-input"
           aria-label="登録年月"
         />
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" name="needsReview" value="1" defaultChecked={searchParams.needsReview === "1"} />
+          要確認のみ表示
+        </label>
         <div className="flex gap-2 lg:col-span-2">
           <button type="submit" className="btn-primary whitespace-nowrap">
             検索する
@@ -91,6 +105,41 @@ export default async function RosterPage({
       </form>
 
       <TalentRosterTable talents={talents} />
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 text-sm">
+          <PagerLink searchParams={searchParams} page={page - 1} disabled={page <= 1}>
+            ← 前へ
+          </PagerLink>
+          <span className="text-gray-500">
+            {page} / {totalPages} ページ
+          </span>
+          <PagerLink searchParams={searchParams} page={page + 1} disabled={page >= totalPages}>
+            次へ →
+          </PagerLink>
+        </div>
+      )}
     </div>
+  );
+}
+
+function PagerLink({
+  searchParams,
+  page,
+  disabled,
+  children,
+}: {
+  searchParams: RosterSearchParams;
+  page: number;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  if (disabled) {
+    return <span className="btn-secondary cursor-not-allowed opacity-50">{children}</span>;
+  }
+  return (
+    <Link href={pageHref(searchParams, page)} className="btn-secondary">
+      {children}
+    </Link>
   );
 }

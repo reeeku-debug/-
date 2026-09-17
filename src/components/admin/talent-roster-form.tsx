@@ -13,12 +13,14 @@ export default function TalentRosterForm({
   initialData,
   companies,
   showStatus,
+  reviewNote,
   onSubmit,
   submitLabel,
 }: {
   initialData: TalentRosterFormData;
   companies: { id: string; name: string }[];
   showStatus?: boolean;
+  reviewNote?: string | null;
   onSubmit: (input: TalentRosterFormData) => Promise<void>;
   submitLabel: string;
 }) {
@@ -106,6 +108,17 @@ export default function TalentRosterForm({
             </select>
           </div>
           <div>
+            <label className="field-label">年齢</label>
+            <input
+              type="number"
+              min={0}
+              className="field-input"
+              value={data.age}
+              onChange={(e) => patch({ age: e.target.value })}
+              placeholder="例：22"
+            />
+          </div>
+          <div>
             <label className="field-label">所属事務所</label>
             <select
               className="field-input"
@@ -137,6 +150,22 @@ export default function TalentRosterForm({
             </div>
           )}
         </div>
+
+        {showStatus && initialData.needsReview && (
+          <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={data.needsReview}
+              onChange={(e) => patch({ needsReview: e.target.checked })}
+            />
+            <span>
+              要確認フラグ（移行データの氏名文字化けなどの疑いがあります）。内容を確認・修正したら
+              チェックを外して保存してください。
+              {reviewNote && <span className="mt-1 block text-xs text-amber-700">{reviewNote}</span>}
+            </span>
+          </label>
+        )}
       </div>
 
       <div className="card space-y-4">

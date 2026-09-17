@@ -16,18 +16,21 @@ async function requireAdmin() {
 }
 
 function toTalentData(data: TalentRosterFormData) {
+  const age = data.age.trim() ? Number.parseInt(data.age, 10) : null;
   return {
     lastName: data.lastName.trim(),
     firstName: data.firstName.trim(),
     lastNameKana: data.lastNameKana.trim() || null,
     firstNameKana: data.firstNameKana.trim() || null,
     gender: data.gender.trim() || null,
+    age: age != null && !Number.isNaN(age) && age > 0 ? age : null,
     companyId: data.companyId,
     postalCode: data.postalCode.trim() || null,
     prefecture: data.prefecture.trim() || null,
     city: data.city.trim() || null,
     addressLine: data.addressLine.trim() || null,
     status: data.status.trim() || "ACTIVE",
+    needsReview: data.needsReview,
   };
 }
 

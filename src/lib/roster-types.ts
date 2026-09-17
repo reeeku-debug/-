@@ -4,6 +4,7 @@ export interface TalentRosterFormData {
   lastNameKana: string;
   firstNameKana: string;
   gender: string;
+  age: string;
   companyId: string;
   postalCode: string;
   prefecture: string;
@@ -15,6 +16,7 @@ export interface TalentRosterFormData {
   accountType: string;
   accountNumber: string;
   accountHolder: string;
+  needsReview: boolean;
 }
 
 export function emptyTalentRosterFormData(defaultCompanyId = ""): TalentRosterFormData {
@@ -24,6 +26,7 @@ export function emptyTalentRosterFormData(defaultCompanyId = ""): TalentRosterFo
     lastNameKana: "",
     firstNameKana: "",
     gender: "",
+    age: "",
     companyId: defaultCompanyId,
     postalCode: "",
     prefecture: "",
@@ -35,5 +38,6 @@ export function emptyTalentRosterFormData(defaultCompanyId = ""): TalentRosterFo
     accountType: "",
     accountNumber: "",
     accountHolder: "",
+    needsReview: false,
   };
 }

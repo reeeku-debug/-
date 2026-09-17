@@ -40,6 +40,12 @@ export default async function TalentRosterDetailPage({ params }: { params: { id:
             {fullNameKana && <span>{fullNameKana}　</span>}
             登録日：{formatDate(talent.registeredAt)}　最終更新：{formatDateTime(talent.updatedAt)}
           </p>
+          {talent.needsReview && (
+            <p className="mt-2 max-w-xl rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+              ⚠ 要確認：移行データの氏名文字化けなどの疑いがあります。
+              {talent.reviewNote && <span className="mt-1 block text-xs font-normal">{talent.reviewNote}</span>}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <Link href={`/admin/roster/${talent.id}/edit`} className="btn-primary">
@@ -56,6 +62,7 @@ export default async function TalentRosterDetailPage({ params }: { params: { id:
             <Row label="本名">{fullName}</Row>
             <Row label="読み方">{fullNameKana || "未入力"}</Row>
             <Row label="性別">{talent.gender || "未入力"}</Row>
+            <Row label="年齢">{talent.age != null ? `${talent.age}歳` : "未入力"}</Row>
             <Row label="所属事務所">{talent.company.name}</Row>
             <Row label="在籍状況">
               <span

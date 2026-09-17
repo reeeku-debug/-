@@ -172,6 +172,7 @@ model Talent {
   firstNameKana String?
 
   gender String? // 男性 / 女性 / その他 / 未回答
+  age    Int?
 
   companyId String
   company   Company @relation(fields: [companyId], references: [id])
@@ -183,11 +184,21 @@ model Talent {
 
   status String @default("ACTIVE")
 
+  // kintoneからの移行データ向け: 移行元事務所内での通し番号（例: ANNIN NO.）。
+  // 新アプリのtalentNoとは別に、移行時の重複防止・追跡のために保持する。
+  legacyNo Int?
+
+  // 移行データの氏名文字化けなど、スタッフによる確認・修正が必要な場合に立てるフラグ
+  needsReview Boolean @default(false)
+  reviewNote  String?
+
   registeredAt DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   bankAccount    BankAccount?
   paymentRecords PaymentRecord[]
+
+  @@unique([companyId, legacyNo])
 }
 
 model BankAccount {

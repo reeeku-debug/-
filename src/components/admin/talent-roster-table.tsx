@@ -33,6 +33,11 @@ export default function TalentRosterTable({ talents }: { talents: TalentRosterWi
                   <Link href={`/admin/roster/${t.id}`} className="text-brand-600 hover:underline">
                     {t.lastName} {t.firstName}
                   </Link>
+                  {t.needsReview && (
+                    <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                      要確認
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-gray-600">
                   {t.lastNameKana || t.firstNameKana
