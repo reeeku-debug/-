@@ -144,3 +144,92 @@ model ProjectCandidate {
 
   @@unique([projectId, userId])
 }
+
+// ---------------------------------------------------------------------------
+// タレント情報管理（kintone移行）
+// 上記の User/Project 群（案件マッチングアプリ）とは別ドメイン。所属タレントの
+// 本名・銀行口座・入金状況を管理者が手動登録・管理するための一連のモデル。
+// ---------------------------------------------------------------------------
+
+// 所属事務所（将来的にアソビネクスト/ANNIN以外も追加できるようマスタ化）
+model Company {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  talents Talent[]
+}
+
+// status: "ACTIVE"（在籍） | "SUSPENDED"（休止） | "WITHDRAWN"（退所）
+model Talent {
+  id       String @id @default(cuid())
+  talentNo Int    @unique // 表示用に0埋めした連番（例: 001）。作成時にサーバー側で採番。
+
+  lastName      String
+  firstName     String
+  lastNameKana  String?
+  firstNameKana String?
+
+  gender String? // 男性 / 女性 / その他 / 未回答
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  postalCode  String?
+  prefecture  String?
+  city        String?
+  addressLine String?
+
+  status String @default("ACTIVE")
+
+  registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  bankAccount    BankAccount?
+  paymentRecords PaymentRecord[]
+}
+
+model BankAccount {
+  id       String @id @default(cuid())
+  talentId String @unique
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  bankName      String?
+  branchName    String?
+  accountType   String? // 普通 / 当座 / その他
+  accountNumber String?
+  accountHolder String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// タレント一覧に固定タブとしてハードコードせず、月をデータとして追加できるようにする
+model PaymentMonth {
+  id        String @id @default(cuid())
+  yearMonth String @unique // "2025-01" 形式
+  label     String // "2025年1月"
+  sortOrder Int    @unique
+
+  records PaymentRecord[]
+}
+
+// status: "UNPAID"（未入金） | "PAID"（入金済み） | "NOT_APPLICABLE"（対象外）
+model PaymentRecord {
+  id             String       @id @default(cuid())
+  talentId       String
+  talent         Talent       @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  paymentMonthId String
+  paymentMonth   PaymentMonth @relation(fields: [paymentMonthId], references: [id], onDelete: Cascade)
+
+  status String    @default("UNPAID")
+  amount Int?
+  paidAt DateTime?
+  note   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([talentId, paymentMonthId])
+}

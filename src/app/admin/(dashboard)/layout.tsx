@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/admin/search", label: "検索・絞り込み", icon: "🔍" },
   { href: "/admin/projects", label: "案件管理", icon: "📁" },
   { href: "/admin/matching", label: "案件マッチング", icon: "🤝" },
+  { href: "/admin/roster", label: "タレント名簿", icon: "🗂️" },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {

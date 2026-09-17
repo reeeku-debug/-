@@ -210,6 +210,31 @@ async function main() {
     });
   }
 
+  // --- タレント情報管理（kintone移行）: 事務所マスタ・入金月マスタ ---
+
+  const companies = ["アソビネクスト", "ANNIN"];
+  for (const name of companies) {
+    await prisma.company.upsert({ where: { name }, update: {}, create: { name } });
+  }
+
+  const paymentMonths: { yearMonth: string; label: string; sortOrder: number }[] = [];
+  let sortOrder = 0;
+  for (const year of [2025, 2026]) {
+    for (let month = 1; month <= 12; month++) {
+      sortOrder += 1;
+      const yearMonth = `${year}-${String(month).padStart(2, "0")}`;
+      paymentMonths.push({ yearMonth, label: `${year}年${month}月`, sortOrder });
+    }
+  }
+  for (const pm of paymentMonths) {
+    await prisma.paymentMonth.upsert({
+      where: { yearMonth: pm.yearMonth },
+      update: { label: pm.label, sortOrder: pm.sortOrder },
+      create: pm,
+    });
+  }
+  console.log(`所属事務所: ${companies.join(", ")} / 入金月: ${paymentMonths[0].yearMonth}〜${paymentMonths[paymentMonths.length - 1].yearMonth}`);
+
   console.log("シードデータの投入が完了しました。");
 }
 
