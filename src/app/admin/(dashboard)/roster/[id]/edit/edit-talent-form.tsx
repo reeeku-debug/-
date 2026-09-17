@@ -1,6 +1,6 @@
 "use client";
 
-import type { BankAccount, Talent } from "@prisma/client";
+import type { BankAccount, RosterTalent } from "@prisma/client";
 import TalentRosterForm from "@/components/admin/talent-roster-form";
 import type { TalentRosterFormData } from "@/lib/roster-types";
 import { updateTalent } from "../../actions";
@@ -9,7 +9,7 @@ export default function EditTalentForm({
   talent,
   companies,
 }: {
-  talent: Talent & { bankAccount: BankAccount | null };
+  talent: RosterTalent & { bankAccount: BankAccount | null };
   companies: { id: string; name: string }[];
 }) {
   const initialData: TalentRosterFormData = {

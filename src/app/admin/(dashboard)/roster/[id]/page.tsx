@@ -7,7 +7,7 @@ import { formatTalentNo } from "@/lib/roster";
 import DeleteTalentRosterButton from "@/components/admin/delete-talent-roster-button";
 
 export default async function TalentRosterDetailPage({ params }: { params: { id: string } }) {
-  const talent = await prisma.talent.findUnique({
+  const talent = await prisma.rosterTalent.findUnique({
     where: { id: params.id },
     include: {
       company: true,

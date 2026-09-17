@@ -28,10 +28,10 @@ function rosterInclude(yearMonth: string) {
       where: { paymentMonth: { is: { yearMonth } } },
       include: { paymentMonth: true },
     },
-  } satisfies Prisma.TalentInclude;
+  } satisfies Prisma.RosterTalentInclude;
 }
 
-export type TalentRosterWithRelations = Prisma.TalentGetPayload<{
+export type TalentRosterWithRelations = Prisma.RosterTalentGetPayload<{
   include: ReturnType<typeof rosterInclude>;
 }>;
 
@@ -56,7 +56,7 @@ export interface TalentRosterSearchResult {
 export async function searchTalentRoster(
   params: TalentRosterSearchParams
 ): Promise<TalentRosterSearchResult> {
-  const conditions: Prisma.TalentWhereInput[] = [];
+  const conditions: Prisma.RosterTalentWhereInput[] = [];
 
   const q = params.q?.trim();
   if (q) {
@@ -105,18 +105,18 @@ export async function searchTalentRoster(
   }
 
   const page = Math.max(1, Number.parseInt(params.page ?? "1", 10) || 1);
-  const where: Prisma.TalentWhereInput = { AND: conditions };
+  const where: Prisma.RosterTalentWhereInput = { AND: conditions };
   const yearMonth = currentYearMonth();
 
   const [talents, total] = await Promise.all([
-    prisma.talent.findMany({
+    prisma.rosterTalent.findMany({
       where,
       include: rosterInclude(yearMonth),
       orderBy: { talentNo: "asc" },
       skip: (page - 1) * ROSTER_PAGE_SIZE,
       take: ROSTER_PAGE_SIZE,
     }),
-    prisma.talent.count({ where }),
+    prisma.rosterTalent.count({ where }),
   ]);
 
   return { talents, total, page, totalPages: Math.max(1, Math.ceil(total / ROSTER_PAGE_SIZE)) };

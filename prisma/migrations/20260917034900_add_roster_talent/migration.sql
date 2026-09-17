@@ -9,7 +9,7 @@ CREATE TABLE "Company" (
 );
 
 -- CreateTable
-CREATE TABLE "Talent" (
+CREATE TABLE "RosterTalent" (
     "id" TEXT NOT NULL,
     "talentNo" INTEGER NOT NULL,
     "lastName" TEXT NOT NULL,
@@ -17,16 +17,20 @@ CREATE TABLE "Talent" (
     "lastNameKana" TEXT,
     "firstNameKana" TEXT,
     "gender" TEXT,
+    "age" INTEGER,
     "companyId" TEXT NOT NULL,
     "postalCode" TEXT,
     "prefecture" TEXT,
     "city" TEXT,
     "addressLine" TEXT,
     "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "legacyNo" INTEGER,
+    "needsReview" BOOLEAN NOT NULL DEFAULT false,
+    "reviewNote" TEXT,
     "registeredAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "Talent_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "RosterTalent_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -73,7 +77,10 @@ CREATE TABLE "PaymentRecord" (
 CREATE UNIQUE INDEX "Company_name_key" ON "Company"("name");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Talent_talentNo_key" ON "Talent"("talentNo");
+CREATE UNIQUE INDEX "RosterTalent_talentNo_key" ON "RosterTalent"("talentNo");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RosterTalent_companyId_legacyNo_key" ON "RosterTalent"("companyId", "legacyNo");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "BankAccount_talentId_key" ON "BankAccount"("talentId");
@@ -88,13 +95,14 @@ CREATE UNIQUE INDEX "PaymentMonth_sortOrder_key" ON "PaymentMonth"("sortOrder");
 CREATE UNIQUE INDEX "PaymentRecord_talentId_paymentMonthId_key" ON "PaymentRecord"("talentId", "paymentMonthId");
 
 -- AddForeignKey
-ALTER TABLE "Talent" ADD CONSTRAINT "Talent_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "RosterTalent" ADD CONSTRAINT "RosterTalent_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "BankAccount" ADD CONSTRAINT "BankAccount_talentId_fkey" FOREIGN KEY ("talentId") REFERENCES "Talent"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "BankAccount" ADD CONSTRAINT "BankAccount_talentId_fkey" FOREIGN KEY ("talentId") REFERENCES "RosterTalent"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "PaymentRecord" ADD CONSTRAINT "PaymentRecord_talentId_fkey" FOREIGN KEY ("talentId") REFERENCES "Talent"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "PaymentRecord" ADD CONSTRAINT "PaymentRecord_talentId_fkey" FOREIGN KEY ("talentId") REFERENCES "RosterTalent"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "PaymentRecord" ADD CONSTRAINT "PaymentRecord_paymentMonthId_fkey" FOREIGN KEY ("paymentMonthId") REFERENCES "PaymentMonth"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+

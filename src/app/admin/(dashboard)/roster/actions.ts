@@ -48,10 +48,10 @@ export async function createTalent(data: TalentRosterFormData) {
   await requireAdmin();
 
   const talent = await prisma.$transaction(async (tx) => {
-    const { _max } = await tx.talent.aggregate({ _max: { talentNo: true } });
+    const { _max } = await tx.rosterTalent.aggregate({ _max: { talentNo: true } });
     const talentNo = (_max.talentNo ?? 0) + 1;
 
-    const created = await tx.talent.create({
+    const created = await tx.rosterTalent.create({
       data: {
         ...toTalentData(data),
         talentNo,
@@ -76,7 +76,7 @@ export async function createTalent(data: TalentRosterFormData) {
 export async function updateTalent(talentId: string, data: TalentRosterFormData) {
   await requireAdmin();
 
-  await prisma.talent.update({
+  await prisma.rosterTalent.update({
     where: { id: talentId },
     data: {
       ...toTalentData(data),
@@ -97,7 +97,7 @@ export async function updateTalent(talentId: string, data: TalentRosterFormData)
 export async function deleteTalent(talentId: string) {
   await requireAdmin();
 
-  await prisma.talent.delete({ where: { id: talentId } });
+  await prisma.rosterTalent.delete({ where: { id: talentId } });
 
   revalidatePath("/admin/roster");
   redirect("/admin/roster");

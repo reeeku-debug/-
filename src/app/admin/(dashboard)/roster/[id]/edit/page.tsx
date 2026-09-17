@@ -5,7 +5,7 @@ import EditTalentForm from "./edit-talent-form";
 
 export default async function EditTalentPage({ params }: { params: { id: string } }) {
   const [talent, companies] = await Promise.all([
-    prisma.talent.findUnique({ where: { id: params.id }, include: { bankAccount: true } }),
+    prisma.rosterTalent.findUnique({ where: { id: params.id }, include: { bankAccount: true } }),
     prisma.company.findMany({ orderBy: { name: "asc" } }),
   ]);
   if (!talent) notFound();

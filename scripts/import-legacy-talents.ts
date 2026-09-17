@@ -153,7 +153,7 @@ async function main() {
 
     console.log(`--- ${sheetName} (${companyName}) --- 読み込み行数: ${parsedRows.length}`);
 
-    const existing = await prisma.talent.findMany({
+    const existing = await prisma.rosterTalent.findMany({
       where: { companyId, legacyNo: { in: parsedRows.map((r) => r.legacyNo) } },
       select: { legacyNo: true },
     });
@@ -167,7 +167,7 @@ async function main() {
       continue;
     }
 
-    const { _max } = await prisma.talent.aggregate({ _max: { talentNo: true } });
+    const { _max } = await prisma.rosterTalent.aggregate({ _max: { talentNo: true } });
     let nextTalentNo = (_max.talentNo ?? 0) + 1;
 
     const talentRows = toInsert.map((r) => {
@@ -190,7 +190,7 @@ async function main() {
 
     for (let i = 0; i < talentRows.length; i += INSERT_CHUNK_SIZE) {
       const chunk = talentRows.slice(i, i + INSERT_CHUNK_SIZE);
-      await prisma.talent.createMany({ data: chunk });
+      await prisma.rosterTalent.createMany({ data: chunk });
       await prisma.bankAccount.createMany({
         data: chunk.map((t) => ({ id: randomUUID(), talentId: t.id })),
       });

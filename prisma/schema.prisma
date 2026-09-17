@@ -158,11 +158,13 @@ model Company {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  talents Talent[]
+  talents RosterTalent[]
 }
 
 // status: "ACTIVE"（在籍） | "SUSPENDED"（休止） | "WITHDRAWN"（退所）
-model Talent {
+// モデル名はRosterTalentとする（同一データベースを共有する別アプリに
+// 既存の"Talent"テーブルが存在するため、命名衝突を避けている）。
+model RosterTalent {
   id       String @id @default(cuid())
   talentNo Int    @unique // 表示用に0埋めした連番（例: 001）。作成時にサーバー側で採番。
 
@@ -202,9 +204,9 @@ model Talent {
 }
 
 model BankAccount {
-  id       String @id @default(cuid())
-  talentId String @unique
-  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  id       String       @id @default(cuid())
+  talentId String       @unique
+  talent   RosterTalent @relation(fields: [talentId], references: [id], onDelete: Cascade)
 
   bankName      String?
   branchName    String?
@@ -230,7 +232,7 @@ model PaymentMonth {
 model PaymentRecord {
   id             String       @id @default(cuid())
   talentId       String
-  talent         Talent       @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  talent         RosterTalent @relation(fields: [talentId], references: [id], onDelete: Cascade)
   paymentMonthId String
   paymentMonth   PaymentMonth @relation(fields: [paymentMonthId], references: [id], onDelete: Cascade)
 
