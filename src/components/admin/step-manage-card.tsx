@@ -19,6 +19,7 @@ type StepLite = {
   type: string;
   active: boolean;
   parallelWithPrevious: boolean;
+  goalNote: string | null;
 };
 
 export function StepManageCard({
@@ -94,6 +95,9 @@ export function StepManageCard({
               )}
             </div>
             <p className="mt-0.5 whitespace-pre-line text-xs text-gray-500">{step.description}</p>
+            {step.goalNote && (
+              <p className="mt-1 text-xs font-semibold text-amber-600">🎯 目標: {step.goalNote}</p>
+            )}
             {!step.active && <p className="mt-1 text-xs font-semibold text-gray-400">（無効）</p>}
           </div>
         </div>
@@ -185,6 +189,17 @@ export function StepManageCard({
               <input
                 name="buttonLabel"
                 defaultValue={step.buttonLabel}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+              />
+            </div>
+          )}
+          {!isGoal && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">🎯 目標設定（任意）</label>
+              <input
+                name="goalNote"
+                defaultValue={step.goalNote ?? ""}
+                placeholder="例: 枠回り50人以上"
                 className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
               />
             </div>

@@ -21,6 +21,7 @@ type StepLite = {
   description: string;
   buttonLabel: string;
   type: string;
+  goalNote: string | null;
 };
 
 export function RoadmapStepCard({
@@ -108,6 +109,12 @@ export function RoadmapStepCard({
             {badgeLabel}
           </span>
         </div>
+
+        {status !== "LOCKED" && step.goalNote && (
+          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">
+            🎯 目標: {step.goalNote}
+          </p>
+        )}
 
         {status === "REVIEW" && (
           <p className="mt-3 rounded-lg bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700">

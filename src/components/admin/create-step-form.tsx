@@ -64,6 +64,17 @@ export function CreateStepForm({ patternId }: { patternId: string }) {
           className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
         />
       </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-gray-600">
+          🎯 目標設定（任意）
+        </label>
+        <input
+          name="goalNote"
+          placeholder="例: 枠回り50人以上"
+          className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+        />
+        <p className="mt-1 text-xs text-gray-400">設定すると、タレント側のこのSTEPに目標として表示されます。</p>
+      </div>
       <label className="flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
         <input type="checkbox" name="parallelWithPrevious" className="mt-0.5" />
         <span>

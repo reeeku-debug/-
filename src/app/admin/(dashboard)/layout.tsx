@@ -22,6 +22,7 @@ export default async function AdminDashboardLayout({ children }: { children: Rea
           <AdminNavLink href="/admin/talents" label="タレント管理" icon="👤" />
           <AdminNavLink href="/admin/reports" label="完了報告確認" icon="📨" />
           <AdminNavLink href="/admin/steps" label="STEP管理" icon="🛠️" />
+          <AdminNavLink href="/admin/settings" label="通知設定" icon="🔔" />
         </nav>
         <div className="mt-6 hidden lg:block">
           <SignOutButton />

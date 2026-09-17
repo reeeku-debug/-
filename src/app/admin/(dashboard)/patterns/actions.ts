@@ -47,6 +47,7 @@ export async function createPatternAction(formData: FormData): Promise<CreateRes
             requiresReport: s.requiresReport,
             active: s.active,
             parallelWithPrevious: s.parallelWithPrevious,
+            goalNote: s.goalNote,
           },
         });
       }

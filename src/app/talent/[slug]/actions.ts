@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { submitReport } from "@/lib/progress";
 import { saveUploadedImage } from "@/lib/upload";
+import { notifyReportSubmitted } from "@/lib/notify";
+import { getRequestOrigin } from "@/lib/request";
 
 type ActionResult = { success: true } | { success: false; error: string };
 
@@ -45,6 +47,17 @@ export async function submitStepReportAction(formData: FormData): Promise<Action
 
   revalidatePath(`/talent/${talent.slug}`);
   revalidatePath(`/talent/${talent.slug}/history`);
+
+  const step = await prisma.stepTemplate.findUnique({ where: { id: stepTemplateId } });
+  if (step) {
+    await notifyReportSubmitted({
+      talentId: talent.id,
+      talentName: talent.name,
+      managementNo: talent.managementNo,
+      stepTitle: step.title,
+      origin: getRequestOrigin(),
+    });
+  }
 
   return { success: true };
 }

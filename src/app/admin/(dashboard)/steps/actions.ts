@@ -25,6 +25,7 @@ export async function createStepAction(patternId: string, formData: FormData): P
   const icon = (formData.get("icon") as string | null)?.trim() || "✅";
   const buttonLabel = (formData.get("buttonLabel") as string | null)?.trim() || "完了報告を送る";
   const parallelWithPrevious = formData.get("parallelWithPrevious") === "on";
+  const goalNote = (formData.get("goalNote") as string | null)?.trim() || null;
 
   const goal = await prisma.stepTemplate.findFirst({ where: { patternId, type: "GOAL" } });
   const insertOrder = goal ? goal.order : (await prisma.stepTemplate.count({ where: { patternId } })) + 1;
@@ -44,6 +45,7 @@ export async function createStepAction(patternId: string, formData: FormData): P
         description,
         buttonLabel,
         parallelWithPrevious,
+        goalNote,
       },
     });
   });
@@ -64,10 +66,11 @@ export async function updateStepAction(stepId: string, formData: FormData): Prom
   const icon = (formData.get("icon") as string | null)?.trim() || "✅";
   const buttonLabel = (formData.get("buttonLabel") as string | null)?.trim() || "完了報告を送る";
   const parallelWithPrevious = formData.get("parallelWithPrevious") === "on";
+  const goalNote = (formData.get("goalNote") as string | null)?.trim() || null;
 
   const step = await prisma.stepTemplate.update({
     where: { id: stepId },
-    data: { title, description, icon, buttonLabel, parallelWithPrevious },
+    data: { title, description, icon, buttonLabel, parallelWithPrevious, goalNote },
   });
 
   await recomputeAllTalentsChain(step.patternId);

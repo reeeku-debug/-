@@ -88,6 +88,8 @@ model StepTemplate {
   // true＝前のSTEPと同時に開放され、順不同・並行して報告できる（連続する複数STEPをまとめて1ブロックとして扱う）。
   parallelWithPrevious Boolean @default(false)
 
+  goalNote String? // 目標設定（任意・自由記述）。設定されている場合のみタレント側に表示。
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -144,4 +146,14 @@ model StepReport {
 
   @@index([talentId])
   @@index([status])
+}
+
+// 通知設定（シングルトン・1行のみ）。マネージャー画面から編集する。
+model NotificationSetting {
+  id String @id @default(cuid())
+
+  googleChatWebhookUrl String? // Google Chat の Incoming Webhook URL
+  notifyOnReportSubmit Boolean @default(true) // タレントが完了報告を送信した時に通知する
+
+  updatedAt DateTime @updatedAt
 }
