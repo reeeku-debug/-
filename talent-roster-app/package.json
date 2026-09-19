@@ -12,7 +12,7 @@
     "seed": "tsx prisma/seed.ts",
     "import:legacy-talents": "tsx scripts/import-legacy-talents.ts",
     "postinstall": "prisma generate",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build"
+    "vercel-build": "prisma generate && prisma migrate deploy && npx tsx prisma/seed.ts && next build"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
