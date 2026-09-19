@@ -1,0 +1,119 @@
+// タレント情報管理アプリ（kintone移行）- Prisma schema
+// PostgreSQL（Vercel等のサーバーレス環境にデプロイするため）。
+// 他アプリとは完全に独立した専用データベースを使用すること。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon等のプール接続(pgbouncer)はマイグレーション実行に必要な
+  // アドバイザリーロックをサポートしないため、マイグレーション専用に
+  // 直接接続を使う。Vercel+Neon連携では自動的に用意される変数。
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+model Admin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// 所属事務所（将来的にアソビネクスト/ANNIN以外も追加できるようマスタ化）
+model Company {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  talents Talent[]
+}
+
+// status: "ACTIVE"（在籍） | "SUSPENDED"（休止） | "WITHDRAWN"（退所）
+model Talent {
+  id       String @id @default(cuid())
+  talentNo Int    @unique // 表示用に0埋めした連番（例: 001）。作成時にサーバー側で採番。
+
+  lastName      String
+  firstName     String
+  lastNameKana  String?
+  firstNameKana String?
+
+  gender String? // 男性 / 女性 / その他 / 未回答
+  age    Int?
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  postalCode  String?
+  prefecture  String?
+  city        String?
+  addressLine String?
+
+  status String @default("ACTIVE")
+
+  // kintoneからの移行データ向け: 移行元事務所内での通し番号（例: ANNIN NO.）。
+  // このアプリ自体のtalentNoとは別に、移行時の重複防止・追跡のために保持する。
+  legacyNo Int?
+
+  // 移行データの氏名文字化けなど、スタッフによる確認・修正が必要な場合に立てるフラグ
+  needsReview Boolean @default(false)
+  reviewNote  String?
+
+  registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  bankAccount    BankAccount?
+  paymentRecords PaymentRecord[]
+
+  @@unique([companyId, legacyNo])
+}
+
+model BankAccount {
+  id       String @id @default(cuid())
+  talentId String @unique
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  bankName      String?
+  branchName    String?
+  accountType   String? // 普通 / 当座 / その他
+  accountNumber String?
+  accountHolder String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// タレント一覧に固定タブとしてハードコードせず、月をデータとして追加できるようにする
+model PaymentMonth {
+  id        String @id @default(cuid())
+  yearMonth String @unique // "2025-01" 形式
+  label     String // "2025年1月"
+  sortOrder Int    @unique
+
+  records PaymentRecord[]
+}
+
+// status: "UNPAID"（未入金） | "PAID"（入金済み） | "NOT_APPLICABLE"（対象外）
+model PaymentRecord {
+  id             String       @id @default(cuid())
+  talentId       String
+  talent         Talent       @relation(fields: [talentId], references: [id], onDelete: Cascade)
+  paymentMonthId String
+  paymentMonth   PaymentMonth @relation(fields: [paymentMonthId], references: [id], onDelete: Cascade)
+
+  status String    @default("UNPAID")
+  amount Int?
+  paidAt DateTime?
+  note   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([talentId, paymentMonthId])
+}
