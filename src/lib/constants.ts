@@ -160,21 +160,3 @@ export function statusColor<T extends { value: string; label: string; color: str
 
 // 情報更新が必要と判断する経過日数
 export const STALE_PROFILE_DAYS = 90;
-
-// ---------------------------------------------------------------------------
-// タレント情報管理（kintone移行）
-// ---------------------------------------------------------------------------
-
-export const BANK_ACCOUNT_TYPE_OPTIONS = ["普通", "当座", "その他"] as const;
-
-export const TALENT_STATUS_OPTIONS = [
-  { value: "ACTIVE", label: "在籍", color: "bg-green-100 text-green-800" },
-  { value: "SUSPENDED", label: "休止", color: "bg-amber-100 text-amber-800" },
-  { value: "WITHDRAWN", label: "退所", color: "bg-gray-200 text-gray-600" },
-] as const;
-
-export const PAYMENT_STATUS_OPTIONS = [
-  { value: "UNPAID", label: "未入金", color: "bg-red-100 text-red-700" },
-  { value: "PAID", label: "入金済み", color: "bg-green-100 text-green-800" },
-  { value: "NOT_APPLICABLE", label: "対象外", color: "bg-gray-100 text-gray-500" },
-] as const;
