@@ -1,0 +1,43 @@
+export interface TalentFormData {
+  lastName: string;
+  firstName: string;
+  lastNameKana: string;
+  firstNameKana: string;
+  gender: string;
+  age: string;
+  companyId: string;
+  postalCode: string;
+  prefecture: string;
+  city: string;
+  addressLine: string;
+  status: string;
+  bankName: string;
+  branchName: string;
+  accountType: string;
+  accountNumber: string;
+  accountHolder: string;
+  needsReview: boolean;
+}
+
+export function emptyTalentFormData(defaultCompanyId = ""): TalentFormData {
+  return {
+    lastName: "",
+    firstName: "",
+    lastNameKana: "",
+    firstNameKana: "",
+    gender: "",
+    age: "",
+    companyId: defaultCompanyId,
+    postalCode: "",
+    prefecture: "",
+    city: "",
+    addressLine: "",
+    status: "ACTIVE",
+    bankName: "",
+    branchName: "",
+    accountType: "",
+    accountNumber: "",
+    accountHolder: "",
+    needsReview: false,
+  };
+}
