@@ -58,6 +58,13 @@ http://localhost:3000 を開いてください。
   ランキング結果と候補者管理（候補者に追加／お気に入り／除外／メモ）
 - `/admin/matching` — 案件マッチングのエントリーページ（案件を選んでマッチング）
 
+### 配信収益ダッシュボード（`/admin/revenue`）
+
+IRIAM・Avvy・Mirrativ の登録者数・配信収益・KPI・要確認タレントを横断して確認する画面です。
+Googleスプレッドシート（各アプリのCSVを保存）をデータソースとし、接続情報が未設定の場合は
+ダミーデータで動作します。構成・スプレッドシート連携・CSV取込の詳細は
+[docs/revenue-dashboard.md](./docs/revenue-dashboard.md) を参照してください。
+
 ## マッチングエンジンについて
 
 `src/lib/matching.ts` に実装。外部LLM APIには依存せず、案件の必須条件・

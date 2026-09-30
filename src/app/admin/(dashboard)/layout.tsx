@@ -7,6 +7,7 @@ import AdminNavLink from "@/components/admin/admin-nav-link";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "ダッシュボード", icon: "📊" },
+  { href: "/admin/revenue", label: "配信収益", icon: "💴" },
   { href: "/admin/talents", label: "登録者一覧", icon: "👥" },
   { href: "/admin/search", label: "検索・絞り込み", icon: "🔍" },
   { href: "/admin/projects", label: "案件管理", icon: "📁" },
@@ -34,7 +35,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
       </aside>
 
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between border-b bg-white px-4 py-3 md:hidden">
           <span className="font-bold">管理者メニュー</span>
           <SignOutButton className="text-sm text-gray-500 underline" />
