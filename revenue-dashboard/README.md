@@ -9,7 +9,7 @@ Googleスプレッドシート（各アプリのCSVを保存）をデータソ�
 ## 技術スタック
 
 - Next.js 14（App Router）+ TypeScript + Tailwind CSS
-- Google Sheets API（サービスアカウント認証）
+- Google スプレッドシート（Apps Script のウェブアプリ経由。Sheets API + サービスアカウントにも対応）
 - ログイン：パスワード1つ（環境変数）＋署名付きCookie
 
 ## ローカルで動かす
@@ -33,9 +33,19 @@ npm test               # ユニットテスト
 |---|---|---|
 | `DASHBOARD_PASSWORD` | ○ | ログインパスワード |
 | `DASHBOARD_SESSION_SECRET` | ○ | ランダムな長い文字列（`openssl rand -base64 32` など） |
-| `GOOGLE_SHEETS_SPREADSHEET_ID` | 接続時 | スプレッドシートID |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | 接続時 | サービスアカウントのJSONキー |
+| `GAS_WEBAPP_URL` | 接続時 | Apps Script のウェブアプリURL（下記） |
+| `GAS_TOKEN` | 接続時 | Apps Script の TOKEN に設定した合言葉 |
 | `DASHBOARD_URL` | 任意 | 公開URL（Slack通知のリンク用） |
 | `REVENUE_CRON_SECRET` / `SLACK_WEBHOOK_URL` | 任意 | アラート通知 |
+
+## スプレッドシートの接続（Apps Script）
+
+1. データ用のスプレッドシートを開き「拡張機能 → Apps Script」
+2. `scripts/gas/webapp.gs` の中身を貼り付け、`TOKEN` を長い合言葉に書き換えて保存
+3. 「デプロイ → 新しいデプロイ → ウェブアプリ」、実行ユーザー「自分」、アクセス「全員」でデプロイ
+4. 表示されたウェブアプリURLと合言葉を Vercel の `GAS_WEBAPP_URL` / `GAS_TOKEN` に設定して Redeploy
+5. ダッシュボードの「設定」で「不足しているシートを作成」
+
+スプレッドシート自体の共有は「制限付き」のままで構いません（スクリプトが所有者の権限で読み書きします）。
 
 スプレッドシート連携・CSV取込・KPI・アラートの詳細は [docs/revenue-dashboard.md](./docs/revenue-dashboard.md) を参照してください。

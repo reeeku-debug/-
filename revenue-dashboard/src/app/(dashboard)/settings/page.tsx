@@ -20,8 +20,10 @@ const UNITS: Record<keyof RevenueSettings, string> = {
 };
 
 const ENV_VARS = [
-  ["REVENUE_DATA_SOURCE", "sheets / demo（未指定なら接続情報の有無で自動判定）"],
-  ["GOOGLE_SHEETS_SPREADSHEET_ID", "スプレッドシートID（URLの /d/ と /edit の間）"],
+  ["GAS_WEBAPP_URL", "Apps Script のウェブアプリURL（scripts/gas/webapp.gs をデプロイしたもの）"],
+  ["GAS_TOKEN", "Apps Script の TOKEN に設定した合言葉"],
+  ["REVENUE_DATA_SOURCE", "gas / sheets / demo（未指定なら接続情報の有無で自動判定）"],
+  ["GOOGLE_SHEETS_SPREADSHEET_ID", "（Sheets API を使う場合）スプレッドシートID"],
   ["GOOGLE_SERVICE_ACCOUNT_EMAIL", "サービスアカウントのメールアドレス"],
   ["GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY", "サービスアカウントの秘密鍵（\\n 区切りのままでOK）"],
   ["GOOGLE_SERVICE_ACCOUNT_JSON", "（代替）JSONキーをそのまま、またはBase64で"],
@@ -55,7 +57,7 @@ export default async function RevenueSettingsPage() {
           <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{configError ?? data.error}</p>
         )}
         <div className="mt-4">
-          <InitSheetsForm enabled={data.source.kind === "sheets"} />
+          <InitSheetsForm enabled={data.source.kind !== "demo"} />
           {data.source.kind === "demo" && (
             <p className="mt-2 text-xs text-gray-500">スプレッドシート接続後に、必要なシート（ヘッダー行付き）を自動作成できます。</p>
           )}
@@ -75,7 +77,7 @@ export default async function RevenueSettingsPage() {
           </tbody>
         </table>
         <p className="mt-2 text-xs text-gray-500">
-          スプレッドシートの共有設定で、サービスアカウントのメールアドレスに「編集者」権限を付与してください。詳しい手順は docs/revenue-dashboard.md を参照。
+          通常は Apps Script 方式（GAS_WEBAPP_URL / GAS_TOKEN）で接続します。サービスアカウントの鍵が使える環境では Sheets API 方式も使えます。詳しい手順は docs/revenue-dashboard.md を参照。
         </p>
       </Section>
 

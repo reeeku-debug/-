@@ -62,16 +62,38 @@ CSVの形式が変わっても、`mapping.ts`（または MAPPING シート）�
 
 ## Googleスプレッドシート連携の設定
 
-1. Google Cloud でプロジェクトを作成し **Google Sheets API** を有効化
-2. サービスアカウントを作成し、JSONキーを発行
-3. スプレッドシートの共有で、サービスアカウントのメールアドレスを **編集者** として追加
-4. 環境変数を設定（Vercel の Environment Variables など。ソースコードには書かない）
+### 方法A：Apps Script（推奨・Google Cloud 不要）
+
+組織ポリシーでサービスアカウントの鍵が作れない環境でも使えます。
+
+1. データ用のスプレッドシートを開き「拡張機能 → Apps Script」
+2. `scripts/gas/webapp.gs` の中身を貼り付け、先頭の `TOKEN` を推測されにくい長い合言葉に書き換えて保存
+3. 「デプロイ → 新しいデプロイ」→ 種類「ウェブアプリ」
+   - 次のユーザーとして実行：**自分**
+   - アクセスできるユーザー：**全員**（合言葉がないリクエストはスクリプトが拒否します）
+4. 権限を許可し、表示された「ウェブアプリ URL」をコピー
+5. Vercel の環境変数に設定して Redeploy
 
 | 変数 | 内容 |
 |---|---|
-| `GOOGLE_SHEETS_SPREADSHEET_ID` | スプレッドシートID |
-| `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | サービスアカウント（または `GOOGLE_SERVICE_ACCOUNT_JSON`） |
-| `REVENUE_DATA_SOURCE` | `sheets` / `demo`（未指定なら接続情報の有無で自動判定） |
+| `GAS_WEBAPP_URL` | ウェブアプリURL（`https://script.google.com/macros/s/…/exec`） |
+| `GAS_TOKEN` | スクリプトの `TOKEN` と同じ合言葉 |
+
+- スプレッドシート自体の共有は「制限付き」のままで構いません
+- スクリプトを書き換えたときは「デプロイ → デプロイを管理 → 編集 → 新バージョン」で更新します（URLは変わりません）
+- CSV自動取込用の `scripts/gas/import-csv.gs` も同じ Apps Script プロジェクトに別ファイルとして追加できます
+
+### 方法B：Google Sheets API（サービスアカウント）
+
+1. Google Cloud で **Google Sheets API** を有効化し、サービスアカウントとJSONキーを作成
+2. スプレッドシートをサービスアカウントのメールアドレスに **編集者** で共有
+3. 環境変数 `GOOGLE_SHEETS_SPREADSHEET_ID` と `GOOGLE_SERVICE_ACCOUNT_JSON`（または `GOOGLE_SERVICE_ACCOUNT_EMAIL` / `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`）を設定
+
+### 共通
+
+| 変数 | 内容 |
+|---|---|
+| `REVENUE_DATA_SOURCE` | `gas` / `sheets` / `demo`（未指定なら gas → sheets の順に接続情報がある方、どちらもなければ demo） |
 | `REVENUE_CACHE_TTL_SECONDS` | 読み込み結果のキャッシュ秒数（既定60。画面の「データを再読込」で即時更新） |
 
 接続情報が無い場合は **ダミーデータ（デモモード）** で表示されます。デモモードでの取込・KPI保存は
@@ -139,4 +161,4 @@ CSVの列名が途中で変わった場合も、新旧どちらの列名も候�
 npm test
 ```
 
-CSVパース・日付/数値変換・カラムマッピング・重複排除・KPI計算・アラート・CSV取込・Sheets API 呼び出し（モック）をテストしています。
+CSVパース・日付/数値変換・カラムマッピング・重複排除・KPI計算・アラート・CSV取込・Sheets API 呼び出し（モック）・Apps Script（webapp.gs を模擬環境で実行）をテストしています。

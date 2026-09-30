@@ -2,11 +2,11 @@ import type { RawDataset, RawTable } from "../types";
 
 /**
  * データソースの共通インターフェース。
- * ダミーデータ（demo）と Google スプレッドシート（sheets）を同じ形で扱う。
+ * ダミーデータ（demo）と Google スプレッドシート（gas: Apps Script 経由 / sheets: Sheets API）を同じ形で扱う。
  * 他の保存先（DB・別API）に切り替える場合もこのインターフェースを実装すればよい。
  */
 export interface RevenueDataSource {
-  kind: "demo" | "sheets";
+  kind: "demo" | "sheets" | "gas";
   label: string;
   /** 書き込み（CSV取込・KPI保存・設定保存）が可能か */
   writable: boolean;
