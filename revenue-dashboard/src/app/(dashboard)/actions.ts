@@ -165,7 +165,7 @@ export async function initSheetsAction(_prev: SaveState): Promise<SaveState> {
   await requireSession();
   const { source, configError } = getRevenueDataSource();
   if (configError) return { ok: false, message: configError };
-  if (source.kind !== "sheets") return { ok: false, message: "デモモードではシートの作成は不要です" };
+  if (source.kind === "demo") return { ok: false, message: "デモモードではシートの作成は不要です" };
   try {
     const created = await source.ensureSheets([
       ...APPS.map((a) => ({ name: a.rawSheet, headers: [] as string[] })),
