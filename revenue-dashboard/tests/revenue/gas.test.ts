@@ -135,3 +135,22 @@ test("シート作成 → CSV取込 → 再取込（重複スキップ）→ 集
     restore();
   }
 });
+
+test("Google のエラー画面から原因を推定して表示する", async () => {
+  const { describeUnexpectedResponse } = await import("../../src/lib/revenue/datasource/gas");
+  assert.match(
+    describeUnexpectedResponse(200, "https://script.googleusercontent.com/x", "<html><title>エラー</title><body>スクリプト関数が見つかりません: doPost</body></html>"),
+    /新バージョン/
+  );
+  assert.match(describeUnexpectedResponse(200, "https://accounts.google.com/ServiceLogin?x", "<html><title>ログイン - Google アカウント</title></html>"), /全員/);
+  assert.match(describeUnexpectedResponse(404, "https://script.google.com/x", "<html><title>Not Found</title></html>"), /URLが見つかりません/);
+  assert.match(describeUnexpectedResponse(200, "", "<html><title>謎の画面</title><body>abc</body></html>"), /受信内容: 謎の画面 \/ 謎の画面 abc/);
+  assert.throws(
+    () => readGasConfig({ GAS_WEBAPP_URL: "https://script.google.com/macros/library/d/abc/1", GAS_TOKEN: "t" } as unknown as NodeJS.ProcessEnv),
+    /ライブラリ/
+  );
+  assert.throws(
+    () => readGasConfig({ GAS_WEBAPP_URL: "https://script.google.com/macros/s/abc/dev", GAS_TOKEN: "t" } as unknown as NodeJS.ProcessEnv),
+    /dev/
+  );
+});

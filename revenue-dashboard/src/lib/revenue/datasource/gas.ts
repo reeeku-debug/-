@@ -21,6 +21,11 @@ export function readGasConfig(env: NodeJS.ProcessEnv = process.env): GasConfig |
   if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) {
     throw new Error("GAS_WEBAPP_URL は https://script.google.com/macros/s/…/exec の形式で指定してください");
   }
+  if (url.includes("/library/") || /\/dev(\?|$)/.test(url)) {
+    throw new Error(
+      "GAS_WEBAPP_URL にライブラリ用またはテスト用（/dev）のURLが設定されています。「ウェブアプリ」のURL（/exec で終わるもの）を設定してください"
+    );
+  }
   return { url, token };
 }
 
@@ -32,6 +37,44 @@ function toTable(values: unknown[][] | undefined): RawTable {
     .map((r) => headers.map((_, i) => (r[i] === null || r[i] === undefined ? "" : String(r[i]))))
     .filter((r) => r.some((c) => c.trim() !== ""));
   return { headers, rows };
+}
+
+/** HTML の <title> と本文の先頭（タグを除いたもの） */
+function pageSummary(html: string): string {
+  const title = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+  const body = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+  return [title, body].filter(Boolean).join(" / ");
+}
+
+/**
+ * Apps Script が JSON 以外（Google のエラー画面など）を返したときに、
+ * よくある原因を推定して分かりやすいメッセージにする。
+ */
+export function describeUnexpectedResponse(status: number, finalUrl: string, text: string): string {
+  const summary = pageSummary(text);
+  const has = (...words: string[]) => words.some((w) => text.includes(w) || finalUrl.includes(w));
+  let hint: string;
+  if (has("doPost", "スクリプト関数が見つかりません", "Script function not found")) {
+    hint =
+      "デプロイされているのが古いコードです。Apps Script で「デプロイ → デプロイを管理 → 鉛筆 → バージョン：新バージョン → デプロイ」を行ってください";
+  } else if (has("accounts.google.com", "ServiceLogin", "ログイン", "Sign in")) {
+    hint =
+      "Google へのログインを求められています。デプロイの「アクセスできるユーザー」を「全員」にして新バージョンでデプロイし直してください（会社の設定で「全員」が選べない場合は管理者の許可が必要です）";
+  } else if (has("アクセス権", "You need access", "権限がありません", "Access denied")) {
+    hint = "アクセスが拒否されています。デプロイの「アクセスできるユーザー」が「全員」か、会社の共有制限がないか確認してください";
+  } else if (status === 404 || has("見つかりません", "Not Found", "ファイルを開くことができません", "unable to open")) {
+    hint = "URLが見つかりません。デプロイ管理画面の「ウェブアプリ」のURL（/exec で終わるもの）を GAS_WEBAPP_URL に設定してください";
+  } else {
+    hint = "GAS_WEBAPP_URL がウェブアプリURL（/exec で終わるもの）か、デプロイの「アクセスできるユーザー」が「全員」か確認してください";
+  }
+  return `Apps Script から想定外の応答がありました (${status})。${hint}${summary ? `［受信内容: ${summary}］` : ""}`;
 }
 
 export function createGasDataSource(config: GasConfig): RevenueDataSource {
@@ -49,9 +92,7 @@ export function createGasDataSource(config: GasConfig): RevenueDataSource {
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(
-        `Apps Script から想定外の応答がありました (${res.status})。デプロイの「アクセスできるユーザー」が「全員」になっているか確認してください`
-      );
+      throw new Error(describeUnexpectedResponse(res.status, res.url, text));
     }
     if (!data.ok) {
       const reason = data.error === "unauthorized" ? "合言葉（GAS_TOKEN）がスクリプトの TOKEN と一致しません" : data.error;
