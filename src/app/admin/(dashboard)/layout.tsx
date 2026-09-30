@@ -7,7 +7,6 @@ import AdminNavLink from "@/components/admin/admin-nav-link";
 
 const NAV_ITEMS = [
   { href: "/admin", label: "ダッシュボード", icon: "📊" },
-  { href: "/admin/revenue", label: "配信収益", icon: "💴" },
   { href: "/admin/talents", label: "登録者一覧", icon: "👥" },
   { href: "/admin/search", label: "検索・絞り込み", icon: "🔍" },
   { href: "/admin/projects", label: "案件管理", icon: "📁" },
