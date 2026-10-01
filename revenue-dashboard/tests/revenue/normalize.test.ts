@@ -119,7 +119,7 @@ test("TALENTSとRAWのタレントを統合する", () => {
       headers: ["talent_id", "タレント名", "アプリ", "登録日", "活動開始日", "ステータス"],
       rows: [["001", "A", "iriam", "2026/08/01", "", "登録済"]],
     },
-    [{ date: "2026-09-01", app: "IRIAM", talentId: "999", talentName: "Z", revenue: 1, recordId: null, streamMinutes: null, streamCount: null, key: "k" }],
+    [{ date: "2026-09-01", app: "IRIAM", talentId: "999", talentName: "Z", revenue: 1, recordId: null, streamMinutes: null, streamCount: null, streamDays: null, key: "k" }],
     warnings
   );
   assert.equal(talents.length, 2);

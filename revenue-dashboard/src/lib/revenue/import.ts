@@ -38,7 +38,12 @@ export interface ImportResult {
 function sameValues(a: RevenueRecord, b: RevenueRecord): boolean {
   const eq = (x: number | null, y: number | null) =>
     x === null || y === null ? x === y : Math.abs(x - y) < 0.01;
-  return a.revenue === b.revenue && eq(a.streamMinutes, b.streamMinutes) && eq(a.streamCount, b.streamCount);
+  return (
+    a.revenue === b.revenue &&
+    eq(a.streamMinutes, b.streamMinutes) &&
+    eq(a.streamCount, b.streamCount) &&
+    eq(a.streamDays, b.streamDays)
+  );
 }
 
 /** 日本時間の ISO 文字列（例: 2026-09-30T15:30:00+09:00） */
@@ -147,6 +152,7 @@ export async function importCsv(opts: ImportOptions): Promise<ImportResult> {
   const knownTalents = new Set(
     normalizeTalents(opts.raw.talents, [], []).map((t) => `${t.app}:${t.talentId}`)
   );
+  const infoByKey = new Map(incoming.talentInfos.map((i) => [`${i.app}:${i.talentId}`, i]));
   const newTalents = new Map<string, RevenueRecord>();
   for (const rec of incoming.records) {
     const key = `${rec.app}:${rec.talentId}`;
@@ -162,7 +168,19 @@ export async function importCsv(opts: ImportOptions): Promise<ImportResult> {
       await opts.source.appendRows(
         SHEET_NAMES.talents,
         TALENTS_HEADERS,
-        Array.from(newTalents.values()).map((r) => [r.talentId, r.talentName, app.id, "", "", "配信開始"])
+        Array.from(newTalents.values()).map((r) => {
+          // CSVに登録日・初配信日・状態があれば TALENTS にも書き込む
+          const info = infoByKey.get(`${r.app}:${r.talentId}`);
+          const slash = (d: string | null | undefined) => (d ? d.replace(/-/g, "/") : "");
+          return [
+            r.talentId,
+            info?.name || r.talentName,
+            app.id,
+            slash(info?.registeredAt),
+            slash(info?.activityStartAt),
+            info?.status ?? "配信開始",
+          ];
+        })
       );
     }
   }

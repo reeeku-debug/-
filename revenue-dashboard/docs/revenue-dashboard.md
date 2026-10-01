@@ -125,7 +125,26 @@ Mirrativ  record_id             配信ID                  ← 1日に複数行�
 ```
 
 指定できる項目：`date` `talent_id` `talent_name` `revenue` `record_id` `stream_minutes` `stream_count`
-`revenue_multiplier` `stream_duration_unit`
+`stream_days` `snapshot` `registered_at` `activity_start_at` `status`
+`revenue_multiplier` `stream_duration_unit` `same_key`（`sum` / `latest`）
+
+### Avvy のCSV（設定済み）
+
+Avvy の出力CSVは「タレント×月」の累計スナップショットです。次のように読み取ります。
+
+| CSVの列 | 使い方 |
+|---|---|
+| `target_month` | 対象月（月初日のデータとして集計） |
+| `snapshot_date` | 出力日。同じ月が複数回出力されている場合は新しい方を採用 |
+| `user_id` / `account_name` | タレントID / タレント名 |
+| `diamonds` | 配信収益（ダイヤ）。**円への換算は MAPPING シートで `Avvy / revenue_multiplier / 1ダイヤの円換算値` を設定** |
+| `stream_hours` / `stream_count` / `stream_days` | 配信時間（時間）/ 配信回数 / 配信日数 |
+| `agency_joined_date` / `first_stream_date` / `membership_status` | 登録日 / 活動開始日 / 状態（TALENTS シートの自動補完に使用） |
+
+- 値が `1899/12/30` になっているセル（スプレッドシートの 0 が日付表示されたもの）は 0 として扱います
+- 毎日（または月途中に何度でも）同じ月のCSVを取り込んで構いません。最新の出力日の値で上書きされます
+- 月次データのため、当月の「前月比」は前月1か月分との比較になります（日次の同期間比較はできません）
+- `membership_status` は Pre-join → 登録前、Active → 配信開始（初配信日がなければ登録済）として扱います
 
 ※ 現在のデフォルトのカラム候補（`報酬額(円)` `earnings` `収益(円)` など）はダミーデータ用に仮定したものです。
 CSVの列名が途中で変わった場合も、新旧どちらの列名も候補にあれば両方から値を拾います。

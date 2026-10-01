@@ -148,9 +148,10 @@ export default async function RevenueSettingsPage() {
           <p className="font-semibold text-gray-700">MAPPING シートの書き方（{MAPPING_HEADERS.join(" / ")}）</p>
           <pre className="mt-1 overflow-x-auto">{`IRIAM    revenue               獲得報酬(円)
 IRIAM    talent_id             ライバーID,配信者ID     ← カンマ区切りで複数候補
-Avvy     revenue_multiplier    0.8                     ← ポイント→円換算など
+Avvy     revenue_multiplier    0.8                     ← ダイヤ・ポイント→円換算（1ダイヤ＝何円か）
 Mirrativ stream_duration_unit  seconds                 ← minutes / hours / seconds
-Mirrativ record_id             配信ID                  ← 1日に複数行ある場合の重複判定用`}</pre>
+Mirrativ record_id             配信ID                  ← 1日に複数行ある場合の重複判定用
+IRIAM    same_key              latest                  ← 同じ日(月)の行が複数あるとき sum=合算 / latest=最新のみ`}</pre>
         </div>
       </Section>
 

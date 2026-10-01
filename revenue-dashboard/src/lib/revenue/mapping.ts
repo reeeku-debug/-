@@ -18,6 +18,11 @@ export const MAPPING_FIELDS = [
   { field: "record_id", label: "レコードID（1日複数行の場合）", required: false },
   { field: "stream_minutes", label: "配信時間", required: false },
   { field: "stream_count", label: "配信回数", required: false },
+  { field: "stream_days", label: "配信日数（月次データの場合）", required: false },
+  { field: "snapshot", label: "出力日（同じ月の累計値が複数ある場合）", required: false },
+  { field: "registered_at", label: "登録日（TALENTSの補完用）", required: false },
+  { field: "activity_start_at", label: "活動開始日（TALENTSの補完用）", required: false },
+  { field: "status", label: "活動ステータス（TALENTSの補完用）", required: false },
 ] as const;
 
 export type MappingField = (typeof MAPPING_FIELDS)[number]["field"];
@@ -28,6 +33,12 @@ export interface AppMapping {
   revenueMultiplier: number;
   /** 配信時間列の単位: minutes | hours | seconds（"1:23:45" 形式は自動判定） */
   streamDurationUnit: string;
+  /**
+   * 1回の取込の中に同じキー（アプリ+日付+タレントID）の行が複数あるときの扱い
+   *   sum    … 合算する（1日に複数配信の行がある日次CSV）
+   *   latest … 出力日（snapshot）が最も新しい行だけを使う（月途中の累計値を何度も出力する月次CSV）
+   */
+  sameKey: "sum" | "latest";
 }
 
 const COMMON: Record<MappingField, string[]> = {
@@ -38,6 +49,11 @@ const COMMON: Record<MappingField, string[]> = {
   record_id: ["record_id", "レコードID", "配信ID", "stream_id"],
   stream_minutes: ["stream_minutes", "配信時間", "配信時間(分)", "duration"],
   stream_count: ["stream_count", "配信回数", "配信数", "枠数"],
+  stream_days: ["stream_days", "配信日数"],
+  snapshot: ["snapshot_date", "出力日", "取得日"],
+  registered_at: ["registered_at", "agency_joined_date", "登録日", "所属日", "事務所加入日"],
+  activity_start_at: ["activity_start_at", "first_stream_date", "初配信日", "活動開始日", "配信開始日"],
+  status: ["membership_status", "ステータス", "活動状況", "status"],
 };
 
 function withCommon(overrides: Partial<Record<MappingField, string[]>>): Record<MappingField, string[]> {
@@ -50,20 +66,35 @@ function withCommon(overrides: Partial<Record<MappingField, string[]>>): Record<
 
 // ※ 以下はダミーデータ用に仮定したカラム名。実CSV受領後に MAPPING シートで上書きする。
 export const DEFAULT_MAPPINGS: Record<string, AppMapping> = {
+  // IRIAM・Mirrativ はダミーデータ用に仮定したカラム名（実CSV受領後に調整）
   IRIAM: {
     columns: withCommon({ revenue: ["報酬額(円)"], stream_minutes: ["配信時間(分)"] }),
     revenueMultiplier: 1,
     streamDurationUnit: "minutes",
+    sameKey: "sum",
   },
+  // Avvy は実際の出力CSV（タレント×月の累計スナップショット、収益はダイヤ）に合わせた定義。
+  // ダイヤ→円の換算は MAPPING シートの revenue_multiplier で設定する。
   Avvy: {
-    columns: withCommon({ date: ["date"], talent_id: ["user_id"], revenue: ["earnings"], stream_minutes: ["stream_seconds"] }),
+    columns: withCommon({
+      date: ["target_month"],
+      talent_id: ["user_id"],
+      talent_name: ["account_name"],
+      revenue: ["diamonds"],
+      stream_minutes: ["stream_hours"],
+      stream_count: ["stream_count"],
+      stream_days: ["stream_days"],
+      snapshot: ["snapshot_date"],
+    }),
     revenueMultiplier: 1,
-    streamDurationUnit: "seconds",
+    streamDurationUnit: "hours",
+    sameKey: "latest",
   },
   Mirrativ: {
     columns: withCommon({ date: ["集計日"], talent_id: ["配信者ID"], revenue: ["収益(円)"], stream_count: ["配信数"] }),
     revenueMultiplier: 1,
     streamDurationUnit: "minutes",
+    sameKey: "sum",
   },
 };
 
@@ -71,6 +102,7 @@ const FALLBACK_MAPPING: AppMapping = {
   columns: withCommon({}),
   revenueMultiplier: 1,
   streamDurationUnit: "minutes",
+  sameKey: "sum",
 };
 
 function headerKey(value: string): string {
@@ -79,7 +111,7 @@ function headerKey(value: string): string {
 
 /**
  * MAPPING シート（アプリ / 項目 / 値）による上書きを反映したマッピングを返す。
- * 項目には MAPPING_FIELDS の field か、revenue_multiplier / stream_duration_unit を指定する。
+ * 項目には MAPPING_FIELDS の field か、revenue_multiplier / stream_duration_unit / same_key を指定する。
  * 列名は「,」区切りで複数候補を指定可能。上書きした項目はデフォルト候補より優先される。
  */
 export function resolveMappings(mappingSheet: RawTable | null): Record<string, AppMapping> {
@@ -106,6 +138,8 @@ export function resolveMappings(mappingSheet: RawTable | null): Record<string, A
       if (Number.isFinite(n) && n > 0) mapping.revenueMultiplier = n;
     } else if (field === "stream_duration_unit") {
       mapping.streamDurationUnit = value;
+    } else if (field === "same_key") {
+      if (value === "sum" || value === "latest") mapping.sameKey = value;
     } else if (MAPPING_FIELDS.some((f) => f.field === field)) {
       const key = field as MappingField;
       const custom = value.split(/[,、]/).map((v) => v.trim()).filter(Boolean);

@@ -23,6 +23,7 @@ import {
   type RevenueRecord,
   type RevenueSettings,
   type Talent,
+  type TalentInfo,
 } from "./types";
 
 /** 取込時に RAW シートへ追記する管理用カラム */
@@ -38,6 +39,8 @@ interface RowWithBatch {
   /** 取込日時（エポックミリ秒。不明な行は 0） */
   importedAt: number;
   batchId: string;
+  /** 出力日（同じ取込内に同じキーが複数あるとき、sameKey=latest で最新を選ぶ） */
+  snapshot: string;
   order: number;
 }
 
@@ -47,6 +50,20 @@ export interface NormalizeRawResult {
   lastImportedAt: string | null;
   /** 入力行ごとの重複判定キー（変換できなかった行は null） */
   rowKeys: Array<string | null>;
+  /** RAWから読み取ったタレント情報（タレントごとに最新の行） */
+  talentInfos: TalentInfo[];
+}
+
+/** 各アプリの状態表記をダッシュボードのステータスに寄せる（不明な表記はそのまま） */
+export function normalizeStatus(raw: string, hasActivityStart: boolean): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+  const lower = s.toLowerCase();
+  if (/pre-?join/.test(lower)) return "登録前";
+  if (/(withdraw|left|leave|terminat|graduat|retire)/.test(lower)) return "卒業";
+  if (/(pause|suspend|inactive|dormant)/.test(lower)) return "休止";
+  if (/active/.test(lower)) return hasActivityStart ? "配信開始" : "登録済";
+  return s;
 }
 
 function isNewerBatch(a: RowWithBatch, b: RowWithBatch): boolean {
@@ -98,8 +115,9 @@ export function normalizeRawTable(app: string, sheet: string, table: RawTable, m
   }
   if (missing.length > 0) {
     report.skippedRows = table.rows.length;
-    return { records: [], report, lastImportedAt: null, rowKeys: table.rows.map(() => null) };
+    return { records: [], report, lastImportedAt: null, rowKeys: table.rows.map(() => null), talentInfos: [] };
   }
+  const infos = new Map<string, { info: TalentInfo; sort: string }>();
 
   let lastImportedAtMs = 0;
   let lastImportedAt: string | null = null;
@@ -133,6 +151,28 @@ export function normalizeRawTable(app: string, sheet: string, table: RawTable, m
     rowKeys.push(key);
     const minutesRaw = pickValue(row, cols.stream_minutes);
     const countRaw = pickValue(row, cols.stream_count);
+    const daysRaw = pickValue(row, cols.stream_days);
+    const snapshotRaw = pickValue(row, cols.snapshot);
+    const snapshot = parseDate(snapshotRaw) ?? snapshotRaw;
+
+    // タレント情報は「対象日 → 出力日 → 行順」で最も新しい行の値を使う
+    const sort = `${date}|${snapshot}|${String(i).padStart(8, "0")}`;
+    const talentKey = `${app}:${talentId}`;
+    const prevInfo = infos.get(talentKey);
+    if (!prevInfo || sort > prevInfo.sort) {
+      const activityStartAt = parseDate(pickValue(row, cols.activity_start_at));
+      infos.set(talentKey, {
+        sort,
+        info: {
+          app,
+          talentId,
+          name: pickValue(row, cols.talent_name),
+          registeredAt: parseDate(pickValue(row, cols.registered_at)),
+          activityStartAt,
+          status: normalizeStatus(pickValue(row, cols.status), !!activityStartAt),
+        },
+      });
+    }
     const record: RevenueRecord = {
       date,
       app,
@@ -142,10 +182,11 @@ export function normalizeRawTable(app: string, sheet: string, table: RawTable, m
       recordId,
       streamMinutes: minutesRaw ? parseDurationMinutes(minutesRaw, mapping.streamDurationUnit) : null,
       streamCount: countRaw ? parseNumber(countRaw) : null,
+      streamDays: daysRaw ? parseNumber(daysRaw) : null,
       key,
     };
     const list = byKey.get(key);
-    const entry: RowWithBatch = { record, importedAt, batchId, order: i };
+    const entry: RowWithBatch = { record, importedAt, batchId, snapshot, order: i };
     if (list) list.push(entry);
     else byKey.set(key, [entry]);
   });
@@ -154,15 +195,18 @@ export function normalizeRawTable(app: string, sheet: string, table: RawTable, m
   byKey.forEach((entries) => {
     let latest = entries[0];
     for (const e of entries) if (isNewerBatch(e, latest)) latest = e;
-    const chosen = entries
-      .filter((e) => e.importedAt === latest.importedAt && e.batchId === latest.batchId)
-      .map((e) => e.record);
-    report.duplicateRows += entries.length - chosen.length;
-    records.push(mergeRecords(chosen));
+    let batch = entries.filter((e) => e.importedAt === latest.importedAt && e.batchId === latest.batchId);
+    if (mapping.sameKey === "latest" && batch.length > 1) {
+      // 月途中の累計値が複数ある場合は出力日が最も新しい行（同じなら後の行）だけを使う
+      const newest = batch.reduce((a, b) => (b.snapshot > a.snapshot || (b.snapshot === a.snapshot && b.order > a.order) ? b : a));
+      batch = [newest];
+    }
+    report.duplicateRows += entries.length - batch.length;
+    records.push(mergeRecords(batch.map((e) => e.record)));
   });
   records.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   report.validRecords = records.length;
-  return { records, report, lastImportedAt, rowKeys };
+  return { records, report, lastImportedAt, rowKeys, talentInfos: Array.from(infos.values()).map((v) => v.info) };
 }
 
 function sumNullable(values: Array<number | null>): number | null {
@@ -179,12 +223,18 @@ export function mergeRecords(records: RevenueRecord[]): RevenueRecord {
     revenue: records.reduce((s, r) => s + r.revenue, 0),
     streamMinutes: sumNullable(records.map((r) => r.streamMinutes)),
     streamCount: sumNullable(records.map((r) => r.streamCount)),
+    streamDays: sumNullable(records.map((r) => r.streamDays)),
   };
 }
 
 // ---- TALENTS ----
 
-export function normalizeTalents(table: RawTable, records: RevenueRecord[], warnings: string[]): Talent[] {
+export function normalizeTalents(
+  table: RawTable,
+  records: RevenueRecord[],
+  warnings: string[],
+  infos: TalentInfo[] = []
+): Talent[] {
   const idx = columnIndexer(table.headers);
   const idCol = idx(["talent_id", "タレントID", "ID"]);
   const nameCol = idx(["タレント名", "talent_name", "名前", "name"]);
@@ -221,8 +271,8 @@ export function normalizeTalents(table: RawTable, records: RevenueRecord[], warn
     if (unknownApps > 0) warnings.push(`TALENTSシートでアプリ名を判別できない行が${unknownApps}件あります`);
   }
 
-  // RAWデータにだけ存在するタレントも集計対象に含める
-  let rawOnly = 0;
+  // RAWデータにだけ存在するタレントも集計対象に含める（RAWに登録日などがあれば使う）
+  const infoByKey = new Map(infos.map((i) => [`${i.app}:${i.talentId}`, i]));
   for (const r of records) {
     const key = `${r.app}:${r.talentId}`;
     const existing = talents.get(key);
@@ -230,20 +280,30 @@ export function normalizeTalents(table: RawTable, records: RevenueRecord[], warn
       if (!existing.name && r.talentName) existing.name = r.talentName;
       continue;
     }
-    rawOnly++;
+    const info = infoByKey.get(key);
     talents.set(key, {
       key,
       app: r.app,
       talentId: r.talentId,
-      name: r.talentName,
-      registeredAt: null,
-      activityStartAt: null,
-      status: "配信開始",
+      name: info?.name || r.talentName,
+      registeredAt: info?.registeredAt ?? null,
+      activityStartAt: info?.activityStartAt ?? null,
+      status: info?.status ?? "配信開始",
       fromRawOnly: true,
     });
   }
-  if (rawOnly > 0) {
-    warnings.push(`TALENTSシートに未登録のタレントが${rawOnly}名RAWデータに存在します（登録日不明として集計）`);
+  // TALENTSシートで空欄の登録日・活動開始日は RAW の値で補う（シートの値が優先）
+  for (const t of Array.from(talents.values())) {
+    if (t.fromRawOnly) continue;
+    const info = infoByKey.get(t.key);
+    if (!info) continue;
+    if (!t.registeredAt && info.registeredAt) t.registeredAt = info.registeredAt;
+    if (!t.activityStartAt && info.activityStartAt) t.activityStartAt = info.activityStartAt;
+    if (!t.name && info.name) t.name = info.name;
+  }
+  const unknownDates = Array.from(talents.values()).filter((t) => t.fromRawOnly && !t.registeredAt).length;
+  if (unknownDates > 0) {
+    warnings.push(`TALENTSシートに未登録で登録日も不明なタレントが${unknownDates}名います（登録日不明として集計）`);
   }
   const list = Array.from(talents.values());
   for (const t of list) if (!t.name) t.name = t.talentId;
@@ -330,10 +390,12 @@ export function buildModel(raw: RawDataset, today: string): RevenueModel {
   const mappingReports: MappingReport[] = [];
   let lastImportedAt: string | null = null;
 
+  const talentInfos: TalentInfo[] = [];
   for (const app of APPS) {
     const table = raw.raw[app.id] ?? { headers: [], rows: [] };
     const result = normalizeRawTable(app.id, app.rawSheet, table, getMapping(mappings, app.id));
     records.push(...result.records);
+    talentInfos.push(...result.talentInfos);
     mappingReports.push(result.report);
     for (const e of result.report.errors) warnings.push(`${app.rawSheet}: ${e}`);
     if (result.lastImportedAt && (!lastImportedAt || Date.parse(result.lastImportedAt) > Date.parse(lastImportedAt))) {
@@ -341,7 +403,7 @@ export function buildModel(raw: RawDataset, today: string): RevenueModel {
     }
   }
 
-  const talents = normalizeTalents(raw.talents, records, warnings);
+  const talents = normalizeTalents(raw.talents, records, warnings, talentInfos);
   const kpis = normalizeKpis(raw.kpi, warnings);
   const settings = normalizeSettings(raw.settings);
   const latestDataDate = records.reduce<string | null>((max, r) => (!max || r.date > max ? r.date : max), null);

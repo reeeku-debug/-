@@ -38,8 +38,20 @@ export interface RevenueRecord {
   recordId: string | null;
   streamMinutes: number | null;
   streamCount: number | null;
+  /** 配信日数（月次データなど、1レコードが複数日分の場合のみ） */
+  streamDays: number | null;
   /** 重複判定キー（app + date + talent_id [+ record_id]） */
   key: string;
+}
+
+/** RAWデータから読み取ったタレント情報（TALENTSシートの補完用） */
+export interface TalentInfo {
+  app: string;
+  talentId: string;
+  name: string;
+  registeredAt: string | null;
+  activityStartAt: string | null;
+  status: string | null;
 }
 
 export const TALENT_STATUSES = ["登録前", "登録済", "配信準備中", "配信開始", "休止", "卒業"] as const;
