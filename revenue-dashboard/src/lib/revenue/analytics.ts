@@ -32,13 +32,17 @@ function emptyAgg(): TalentAgg {
 }
 
 export function isStreamDay(r: RevenueRecord): boolean {
-  return r.revenue > 0 || (r.streamMinutes ?? 0) > 0 || (r.streamCount ?? 0) > 0;
+  return r.revenue > 0 || (r.streamMinutes ?? 0) > 0 || (r.streamCount ?? 0) > 0 || (r.streamDays ?? 0) > 0;
 }
 
-/** 期間内のレコードをタレント別に集計（配信日数は日付の重複を除いて数える） */
+/**
+ * 期間内のレコードをタレント別に集計。
+ * 配信日数は日次データなら日付の重複を除いて数え、月次データ（streamDays あり）はその値を足す。
+ */
 export function aggregateByTalent(records: RevenueRecord[], start: string, end: string): Map<string, TalentAgg> {
   const map = new Map<string, TalentAgg>();
   const days = new Map<string, Set<string>>();
+  const explicitDays = new Map<string, number>();
   const revenueDays = new Map<string, Map<string, number>>();
   for (const r of records) {
     if (r.date < start || r.date > end) continue;
@@ -52,9 +56,13 @@ export function aggregateByTalent(records: RevenueRecord[], start: string, end: 
     if (r.streamMinutes !== null) agg.streamMinutes = (agg.streamMinutes ?? 0) + r.streamMinutes;
     if (r.streamCount !== null) agg.streamCount = (agg.streamCount ?? 0) + r.streamCount;
     if (isStreamDay(r)) {
-      let set = days.get(key);
-      if (!set) days.set(key, (set = new Set()));
-      set.add(r.date);
+      if (r.streamDays !== null) {
+        explicitDays.set(key, (explicitDays.get(key) ?? 0) + r.streamDays);
+      } else {
+        let set = days.get(key);
+        if (!set) days.set(key, (set = new Set()));
+        set.add(r.date);
+      }
       if (!agg.lastActiveDate || r.date > agg.lastActiveDate) agg.lastActiveDate = r.date;
     }
     let rd = revenueDays.get(key);
@@ -62,7 +70,7 @@ export function aggregateByTalent(records: RevenueRecord[], start: string, end: 
     rd.set(r.date, (rd.get(r.date) ?? 0) + r.revenue);
   }
   map.forEach((agg, key) => {
-    agg.streamDays = days.get(key)?.size ?? 0;
+    agg.streamDays = (days.get(key)?.size ?? 0) + (explicitDays.get(key) ?? 0);
     const rd = revenueDays.get(key);
     if (rd) {
       rd.forEach((v, date) => {

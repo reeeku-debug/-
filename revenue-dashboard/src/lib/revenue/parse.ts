@@ -13,6 +13,8 @@ export function parseNumber(value: unknown): number | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   let s = toHalfWidth(String(value)).trim();
   if (!s || s === "-") return null;
+  // スプレッドシートで 0 が日付表示になったもの（シリアル値0 = 1899/12/30）
+  if (/^1899[/\-]12[/\-]3[01]$/.test(s)) return 0;
   let negative = false;
   if (/^\(.*\)$/.test(s)) {
     negative = true;
@@ -57,6 +59,12 @@ export function parseDate(value: unknown): string | null {
   if (m) {
     const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
     return isValidDate(y, mo, d) ? toDateKey(y, mo, d) : null;
+  }
+  // 年月だけ（"2026-09" "2026/9" "2026年9月"）は月初日として扱う（月次データ用）
+  m = s.match(/^(\d{4})[/\-.年](\d{1,2})月?$/);
+  if (m) {
+    const [y, mo] = [Number(m[1]), Number(m[2])];
+    return isValidDate(y, mo, 1) ? toDateKey(y, mo, 1) : null;
   }
   m = s.match(/^(\d{4})(\d{2})(\d{2})$/);
   if (m) {

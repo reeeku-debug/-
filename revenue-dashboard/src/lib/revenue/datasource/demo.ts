@@ -161,9 +161,16 @@ export function generateDemoDataset(today: string, seed = 20260930): RawDataset 
 
   const raw: Record<string, RawTable> = {
     IRIAM: { headers: ["日付", "ライバーID", "ライバー名", "配信時間(分)", "配信回数", "報酬額(円)"], rows: [] },
-    Avvy: { headers: ["date", "user_id", "display_name", "stream_seconds", "earnings"], rows: [] },
+    // Avvy は実際の出力CSV（月次の累計スナップショット）と同じ形式
+    Avvy: {
+      headers: ["target_month", "snapshot_date", "user_id", "account_name", "agency_joined_date", "first_stream_date", "membership_status", "diamonds", "stream_hours", "stream_count", "stream_days"],
+      rows: [],
+    },
     Mirrativ: { headers: ["集計日", "配信者ID", "配信者名", "配信時間", "配信数", "収益(円)"], rows: [] },
   };
+
+  // Avvy はタレント×月の累計（月次スナップショット）にまとめて出力する
+  const avvyMonthly = new Map<string, { t: DemoTalent; month: string; diamonds: number; minutes: number; count: number; days: number }>();
 
   for (const t of talents) {
     if (!t.activityStartAt || t.streamRate === 0) continue;
@@ -182,10 +189,38 @@ export function generateDemoDataset(today: string, seed = 20260930): RawDataset 
       const batch = `demo-${addDays(date, 1).replace(/-/g, "")}`;
       const d = formatForApp(t.app, date);
       if (t.app === "IRIAM") raw.IRIAM.rows.push([d, t.id, t.name, String(minutes), String(count), revenue.toLocaleString("en-US"), batch, stamp]);
-      if (t.app === "Avvy") raw.Avvy.rows.push([d, t.id, t.name, String(minutes * 60), String(revenue), batch, stamp]);
+      if (t.app === "Avvy") {
+        const k = `${t.id}|${monthOf(date)}`;
+        const m = avvyMonthly.get(k) ?? { t, month: monthOf(date), diamonds: 0, minutes: 0, count: 0, days: 0 };
+        m.diamonds += revenue;
+        m.minutes += minutes;
+        m.count += count;
+        m.days += 1;
+        avvyMonthly.set(k, m);
+      }
       if (t.app === "Mirrativ") raw.Mirrativ.rows.push([d, t.id, t.name, hms(minutes), String(count), String(revenue), batch, stamp]);
     }
   }
+  avvyMonthly.forEach((m) => {
+    const nextMonthStart = monthStart(addMonths(m.month, 1));
+    const snapshot = nextMonthStart <= today ? nextMonthStart : today;
+    const slash = (v: string | null) => (v ? v.replace(/-/g, "/") : "");
+    raw.Avvy.rows.push([
+      m.month,
+      slash(snapshot),
+      m.t.id,
+      m.t.name,
+      slash(m.t.registeredAt),
+      slash(m.t.activityStartAt),
+      m.t.status === "卒業" || m.t.status === "休止" ? "Inactive" : "Active",
+      String(m.diamonds),
+      (m.minutes / 60).toFixed(1),
+      String(m.count),
+      String(m.days),
+      `demo-avvy-${snapshot.replace(/-/g, "")}`,
+      `${snapshot}T09:00:00+09:00`,
+    ]);
+  });
   for (const table of Object.values(raw)) table.headers.push(IMPORT_ID_COLUMN, IMPORTED_AT_COLUMN);
 
   // 重複取込のデモ：IRIAM の前日分CSVを同じ内容でもう一度取り込んだ状態
