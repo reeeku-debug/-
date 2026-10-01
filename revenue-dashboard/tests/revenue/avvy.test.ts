@@ -35,7 +35,7 @@ test("Avvy の月次CSVを共通フォーマットに変換する", () => {
   assert.equal(report.skippedRows, 0, "1899/12/30 の行も 0 として読める");
   const sep = records.filter((r) => r.date === "2026-09-01");
   const a = sep.find((r) => r.talentId === "aaa1")!;
-  assert.equal(a.revenue, 18946, "同じ月は出力日が新しい行を採用");
+  assert.equal(a.revenue, Math.round(18946 * 0.8), "同じ月は出力日が新しい行を採用し、1ダイヤ＝0.8円で換算");
   assert.equal(a.streamDays, 29);
   assert.equal(Math.round(a.streamMinutes!), 155.1 * 60);
   assert.equal(a.streamCount, 149);

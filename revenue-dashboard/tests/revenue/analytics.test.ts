@@ -23,7 +23,8 @@ function dataset(): RawDataset {
       },
       Avvy: {
         headers: ["date", "user_id", "earnings"],
-        rows: [["2026-09-03", "C", "200000"]],
+        // Avvy は 1ダイヤ＝0.8円で換算されるので 250,000ダイヤ → 200,000円
+        rows: [["2026-09-03", "C", "250000"]],
       },
       Mirrativ: { headers: [], rows: [] },
     },

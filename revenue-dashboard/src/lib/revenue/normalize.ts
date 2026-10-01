@@ -6,8 +6,12 @@ import { findKpiDefinition } from "./kpi-definitions";
 import {
   MAPPING_FIELDS,
   columnIndexer,
+  durationUnitForHeader,
   getMapping,
+  pickNumberSum,
   pickValue,
+  pickValueWithColumn,
+  resolveColumnGroups,
   resolveColumns,
   resolveMappings,
   type AppMapping,
@@ -84,6 +88,8 @@ function isNewerBatch(a: RowWithBatch, b: RowWithBatch): boolean {
  */
 export function normalizeRawTable(app: string, sheet: string, table: RawTable, mapping: AppMapping): NormalizeRawResult {
   const cols = resolveColumns(table.headers, mapping);
+  // 収益は「列A+列B」の合計指定に対応
+  const revenueGroups = resolveColumnGroups(table.headers, mapping.columns.revenue);
   const idx = columnIndexer(table.headers);
   const batchIdCol = idx([IMPORT_ID_COLUMN]);
   const importedAtCol = idx([IMPORTED_AT_COLUMN]);
@@ -98,7 +104,14 @@ export function normalizeRawTable(app: string, sheet: string, table: RawTable, m
       label: f.label,
       required: f.required,
       candidates: mapping.columns[f.field],
-      matchedColumn: cols[f.field].length > 0 ? cols[f.field].map((i) => table.headers[i]).join(" / ") : null,
+      matchedColumn:
+        f.field === "revenue"
+          ? revenueGroups.length > 0
+            ? revenueGroups.map((g) => g.map((i) => table.headers[i]).join("+")).join(" / ")
+            : null
+          : cols[f.field].length > 0
+            ? cols[f.field].map((i) => table.headers[i]).join(" / ")
+            : null,
     })),
     revenueMultiplier: mapping.revenueMultiplier,
     streamDurationUnit: mapping.streamDurationUnit,
@@ -128,7 +141,7 @@ export function normalizeRawTable(app: string, sheet: string, table: RawTable, m
     const rowNo = i + 2; // シート上の行番号（ヘッダーが1行目）
     const date = parseDate(pickValue(row, cols.date));
     const talentId = pickValue(row, cols.talent_id);
-    const revenueRaw = parseNumber(pickValue(row, cols.revenue));
+    const revenueRaw = pickNumberSum(row, revenueGroups, parseNumber);
     if (!date || !talentId || revenueRaw === null) {
       rowKeys.push(null);
       report.skippedRows++;
@@ -149,7 +162,9 @@ export function normalizeRawTable(app: string, sheet: string, table: RawTable, m
 
     const key = recordKey(app, date, talentId, recordId);
     rowKeys.push(key);
-    const minutesRaw = pickValue(row, cols.stream_minutes);
+    const minutes = pickValueWithColumn(row, cols.stream_minutes);
+    const minutesRaw = minutes.value;
+    const minutesUnit = minutes.column >= 0 ? durationUnitForHeader(table.headers[minutes.column], mapping.streamDurationUnit) : mapping.streamDurationUnit;
     const countRaw = pickValue(row, cols.stream_count);
     const daysRaw = pickValue(row, cols.stream_days);
     const snapshotRaw = pickValue(row, cols.snapshot);
@@ -180,7 +195,7 @@ export function normalizeRawTable(app: string, sheet: string, table: RawTable, m
       talentName: pickValue(row, cols.talent_name),
       revenue: Math.round(revenueRaw * mapping.revenueMultiplier),
       recordId,
-      streamMinutes: minutesRaw ? parseDurationMinutes(minutesRaw, mapping.streamDurationUnit) : null,
+      streamMinutes: minutesRaw ? parseDurationMinutes(minutesRaw, minutesUnit) : null,
       streamCount: countRaw ? parseNumber(countRaw) : null,
       streamDays: daysRaw ? parseNumber(daysRaw) : null,
       key,
@@ -288,7 +303,7 @@ export function normalizeTalents(
       name: info?.name || r.talentName,
       registeredAt: info?.registeredAt ?? null,
       activityStartAt: info?.activityStartAt ?? null,
-      status: info?.status ?? "配信開始",
+      status: info?.status ?? (info && !info.activityStartAt ? "登録済" : "配信開始"),
       fromRawOnly: true,
     });
   }

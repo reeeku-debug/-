@@ -126,7 +126,32 @@ Mirrativ  record_id             配信ID                  ← 1日に複数行�
 
 指定できる項目：`date` `talent_id` `talent_name` `revenue` `record_id` `stream_minutes` `stream_count`
 `stream_days` `snapshot` `registered_at` `activity_start_at` `status`
+（`revenue` は `時間ダイヤ+応援ダイヤ` のように「+」でつなぐと列の合計を使います）
 `revenue_multiplier` `stream_duration_unit` `same_key`（`sum` / `latest`）
+
+### 各アプリの収益単位
+
+| アプリ | 収益単位 | 円換算 |
+|---|---|---|
+| IRIAM | ダイヤ | 1ダイヤ＝1円 |
+| Avvy | ダイヤモンド | 1ダイヤ＝0.8円（初期設定済み） |
+| Mirrativ | 報酬（ボーナス） | 固定レートなし（CSVの円建ての金額を使用） |
+
+### IRIAM のCSV（設定済み）
+
+IRIAM の配信レポートCSV（集計期間ごとのタレント別集計）をそのまま取り込めます。
+
+| CSVの列 | 使い方 |
+|---|---|
+| `集計開始日` | 集計期間の開始日（この日のデータとして集計） |
+| `集計終了日` | 同じ開始日のレポートが複数ある場合は、終了日が新しい方を採用 |
+| `User ID` / `アカウント名` | タレントID / タレント名 |
+| `時間ダイヤ` + `応援ダイヤ` | 配信収益（合計。1ダイヤ＝1円） |
+| `総配信時間` / `配信回数` / `配信日数` | 配信時間（時間）/ 配信回数 / 配信日数 |
+| `オーガナイザー登録日` / `初回配信日時` | 登録日 / 活動開始日（「未配信」は活動開始前として扱う） |
+
+- 毎日「月初〜今日」のレポートを取り込めば、最新の値で上書きされます
+- 開始日の違う期間を重ねて取り込むと（例：9/1〜9/15 と 9/10〜9/20）二重計上になるので、期間は「月初から」または重ならないように出力してください
 
 ### Avvy のCSV（設定済み）
 
@@ -137,7 +162,7 @@ Avvy の出力CSVは「タレント×月」の累計スナップショットで�
 | `target_month` | 対象月（月初日のデータとして集計） |
 | `snapshot_date` | 出力日。同じ月が複数回出力されている場合は新しい方を採用 |
 | `user_id` / `account_name` | タレントID / タレント名 |
-| `diamonds` | 配信収益（ダイヤ）。**円への換算は MAPPING シートで `Avvy / revenue_multiplier / 1ダイヤの円換算値` を設定** |
+| `diamonds` | 配信収益（ダイヤ）。**1ダイヤ＝0.8円で円換算**（レートが変わったら MAPPING シートで `Avvy / revenue_multiplier / 新しいレート` を設定） |
 | `stream_hours` / `stream_count` / `stream_days` | 配信時間（時間）/ 配信回数 / 配信日数 |
 | `agency_joined_date` / `first_stream_date` / `membership_status` | 登録日 / 活動開始日 / 状態（TALENTS シートの自動補完に使用） |
 
