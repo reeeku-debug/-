@@ -42,14 +42,14 @@ test("同じCSVを2回取り込んでも二重計上されない（最新バッ�
   assert.equal(report.duplicateRows, 2);
 });
 
-test("同じバッチ内の同一キーは合算する（1日に複数配信のCSV）", () => {
+test("same_key=sum のとき同じバッチ内の同一キーは合算する（1日に複数配信のCSV）", () => {
   const { records } = normalizeRawTable("IRIAM", "IRIAM_RAW", {
     headers: ["日付", "ライバーID", "報酬額(円)", "配信時間(分)"],
     rows: [
       ["2026/09/01", "001", "1000", "30"],
       ["2026/09/01", "001", "2000", "45"],
     ],
-  }, iriam);
+  }, { ...iriam, sameKey: "sum" });
   assert.equal(records.length, 1);
   assert.equal(records[0].revenue, 3000);
   assert.equal(records[0].streamMinutes, 75);

@@ -178,7 +178,7 @@ export async function importCsv(opts: ImportOptions): Promise<ImportResult> {
             app.id,
             slash(info?.registeredAt),
             slash(info?.activityStartAt),
-            info?.status ?? "配信開始",
+            info?.status ?? (info && !info.activityStartAt ? "登録済" : "配信開始"),
           ];
         })
       );

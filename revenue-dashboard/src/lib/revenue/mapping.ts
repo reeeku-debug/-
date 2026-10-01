@@ -64,15 +64,25 @@ function withCommon(overrides: Partial<Record<MappingField, string[]>>): Record<
   return result;
 }
 
-// ※ 以下はダミーデータ用に仮定したカラム名。実CSV受領後に MAPPING シートで上書きする。
 export const DEFAULT_MAPPINGS: Record<string, AppMapping> = {
-  // IRIAM・Mirrativ はダミーデータ用に仮定したカラム名（実CSV受領後に調整）
-  // IRIAM は 1ダイヤ＝1円。Mirrativ は固定レートがないため、CSVの円建ての金額列を使う想定。
+  // IRIAM は実際の配信レポートCSV（集計期間ごとのタレント別集計）に合わせた定義。
+  // 収益は「時間ダイヤ＋応援ダイヤ」（1ダイヤ＝1円）。同じ開始日のレポートは集計終了日が新しい方を採用。
   IRIAM: {
-    columns: withCommon({ revenue: ["報酬額(円)"], stream_minutes: ["配信時間(分)"] }),
+    columns: withCommon({
+      date: ["集計開始日"],
+      talent_id: ["User ID"],
+      talent_name: ["アカウント名"],
+      revenue: ["時間ダイヤ+応援ダイヤ"],
+      stream_minutes: ["総配信時間"],
+      stream_count: ["配信回数"],
+      stream_days: ["配信日数"],
+      snapshot: ["集計終了日"],
+      registered_at: ["オーガナイザー登録日"],
+      activity_start_at: ["初回配信日時"],
+    }),
     revenueMultiplier: 1,
-    streamDurationUnit: "minutes",
-    sameKey: "sum",
+    streamDurationUnit: "hours",
+    sameKey: "latest",
   },
   // Avvy は実際の出力CSV（タレント×月の累計スナップショット、収益はダイヤ）に合わせた定義。
   // 1ダイヤ＝0.8円で円換算する（レートが変わったら MAPPING シートの revenue_multiplier で上書き）。
@@ -91,6 +101,8 @@ export const DEFAULT_MAPPINGS: Record<string, AppMapping> = {
     streamDurationUnit: "hours",
     sameKey: "latest",
   },
+  // Mirrativ はダミーデータ用に仮定したカラム名（実CSV受領後に調整）。
+  // 固定レートがないため、CSVの円建ての金額列を使う想定。
   Mirrativ: {
     columns: withCommon({ date: ["集計日"], talent_id: ["配信者ID"], revenue: ["収益(円)"], stream_count: ["配信数"] }),
     revenueMultiplier: 1,
@@ -114,6 +126,7 @@ function headerKey(value: string): string {
  * MAPPING シート（アプリ / 項目 / 値）による上書きを反映したマッピングを返す。
  * 項目には MAPPING_FIELDS の field か、revenue_multiplier / stream_duration_unit / same_key を指定する。
  * 列名は「,」区切りで複数候補を指定可能。上書きした項目はデフォルト候補より優先される。
+ * 「列A+列B」と書くと、その列の合計を値として使う（収益が複数の列に分かれている場合）。
  */
 export function resolveMappings(mappingSheet: RawTable | null): Record<string, AppMapping> {
   const result: Record<string, AppMapping> = {};
@@ -181,6 +194,54 @@ export function resolveColumns(headers: string[], mapping: AppMapping): Record<M
     result[field] = found;
   }
   return result;
+}
+
+/**
+ * 候補を列グループに解決する。「列A+列B」の候補はすべての列がある場合だけ1グループになる。
+ * 収益のように複数列の合計を取りたい項目で使う。
+ */
+export function resolveColumnGroups(headers: string[], candidates: string[]): number[][] {
+  const keys = headers.map(headerKey);
+  const groups: number[][] = [];
+  for (const c of candidates) {
+    const parts = c.split("+").map((p) => keys.indexOf(headerKey(p)));
+    if (parts.every((i) => i >= 0) && !groups.some((g) => g.join() === parts.join())) groups.push(parts);
+  }
+  return groups;
+}
+
+/** 最初に値が入っている列グループの合計（どの列も空なら null） */
+export function pickNumberSum(row: string[], groups: number[][], parse: (v: string) => number | null): number | null {
+  for (const g of groups) {
+    const values = g.map((i) => String(row[i] ?? "").trim());
+    if (values.every((v) => v === "")) continue;
+    let total = 0;
+    for (const v of values) {
+      const n = v === "" ? 0 : parse(v);
+      if (n === null) return null;
+      total += n;
+    }
+    return total;
+  }
+  return null;
+}
+
+/** 列名から配信時間の単位を推定する（分かれば列名を優先、なければアプリの既定単位） */
+export function durationUnitForHeader(header: string, fallback: string): string {
+  const h = header.toLowerCase();
+  if (/秒|sec/.test(h)) return "seconds";
+  if (/分|min/.test(h)) return "minutes";
+  if (/hour|\(h\)|（h）|\(時間\)/.test(h)) return "hours";
+  return fallback;
+}
+
+/** pickValue と同じだが、値を取り出した列のインデックスも返す */
+export function pickValueWithColumn(row: string[], columns: number[]): { value: string; column: number } {
+  for (const i of columns) {
+    const v = row[i];
+    if (v !== undefined && v !== null && String(v).trim() !== "") return { value: String(v).trim(), column: i };
+  }
+  return { value: "", column: -1 };
 }
 
 /**

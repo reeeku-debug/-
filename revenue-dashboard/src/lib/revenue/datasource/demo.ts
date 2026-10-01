@@ -141,7 +141,7 @@ function generateTalents(today: string, rand: () => number): DemoTalent[] {
 
 function formatForApp(app: string, date: string): string {
   const [y, m, d] = date.split("-");
-  if (app === "IRIAM") return `${y}/${m}/${d}`;
+  if (app === "IRIAM") return `${y}-${m}-${d}`;
   if (app === "Mirrativ") return `${y}${m}${d}`;
   return date;
 }
@@ -160,7 +160,11 @@ export function generateDemoDataset(today: string, seed = 20260930): RawDataset 
   const lastDataDate = addDays(today, -1); // CSVは前日分までを毎日取り込む想定
 
   const raw: Record<string, RawTable> = {
-    IRIAM: { headers: ["日付", "ライバーID", "ライバー名", "配信時間(分)", "配信回数", "報酬額(円)"], rows: [] },
+    // IRIAM は実際の配信レポートCSVと同じ列名（デモでは1日ごとの集計期間で出力）
+    IRIAM: {
+      headers: ["集計開始日", "集計終了日", "アカウント名", "User ID", "オーガナイザー登録日", "初回配信日時", "配信回数", "配信日数", "総配信時間", "時間ダイヤ", "応援ダイヤ"],
+      rows: [],
+    },
     // Avvy は実際の出力CSV（月次の累計スナップショット）と同じ形式
     Avvy: {
       headers: ["target_month", "snapshot_date", "user_id", "account_name", "agency_joined_date", "first_stream_date", "membership_status", "diamonds", "stream_hours", "stream_count", "stream_days"],
@@ -188,7 +192,24 @@ export function generateDemoDataset(today: string, seed = 20260930): RawDataset 
       const stamp = `${addDays(date, 1)}T09:00:00+09:00`;
       const batch = `demo-${addDays(date, 1).replace(/-/g, "")}`;
       const d = formatForApp(t.app, date);
-      if (t.app === "IRIAM") raw.IRIAM.rows.push([d, t.id, t.name, String(minutes), String(count), revenue.toLocaleString("en-US"), batch, stamp]);
+      if (t.app === "IRIAM") {
+        const timeDia = Math.round(revenue * 0.1);
+        raw.IRIAM.rows.push([
+          d,
+          d,
+          t.name,
+          t.id,
+          t.registeredAt,
+          `${t.activityStartAt} 20:00:00`,
+          String(count),
+          "1",
+          (minutes / 60).toFixed(2),
+          String(timeDia),
+          String(revenue - timeDia),
+          batch,
+          stamp,
+        ]);
+      }
       if (t.app === "Avvy") {
         const k = `${t.id}|${monthOf(date)}`;
         const m = avvyMonthly.get(k) ?? { t, month: monthOf(date), diamonds: 0, minutes: 0, count: 0, days: 0 };
@@ -227,7 +248,7 @@ export function generateDemoDataset(today: string, seed = 20260930): RawDataset 
   const dupDate = formatForApp("IRIAM", lastDataDate);
   const dupRows = raw.IRIAM.rows
     .filter((r) => r[0] === dupDate)
-    .map((r) => [...r.slice(0, 6), `demo-reimport`, `${today}T10:30:00+09:00`]);
+    .map((r) => [...r.slice(0, -2), `demo-reimport`, `${today}T10:30:00+09:00`]);
   raw.IRIAM.rows.push(...dupRows);
 
   const talentsTable: RawTable = {
