@@ -67,6 +67,7 @@ function withCommon(overrides: Partial<Record<MappingField, string[]>>): Record<
 // ※ 以下はダミーデータ用に仮定したカラム名。実CSV受領後に MAPPING シートで上書きする。
 export const DEFAULT_MAPPINGS: Record<string, AppMapping> = {
   // IRIAM・Mirrativ はダミーデータ用に仮定したカラム名（実CSV受領後に調整）
+  // IRIAM は 1ダイヤ＝1円。Mirrativ は固定レートがないため、CSVの円建ての金額列を使う想定。
   IRIAM: {
     columns: withCommon({ revenue: ["報酬額(円)"], stream_minutes: ["配信時間(分)"] }),
     revenueMultiplier: 1,
@@ -74,7 +75,7 @@ export const DEFAULT_MAPPINGS: Record<string, AppMapping> = {
     sameKey: "sum",
   },
   // Avvy は実際の出力CSV（タレント×月の累計スナップショット、収益はダイヤ）に合わせた定義。
-  // ダイヤ→円の換算は MAPPING シートの revenue_multiplier で設定する。
+  // 1ダイヤ＝0.8円で円換算する（レートが変わったら MAPPING シートの revenue_multiplier で上書き）。
   Avvy: {
     columns: withCommon({
       date: ["target_month"],
@@ -86,7 +87,7 @@ export const DEFAULT_MAPPINGS: Record<string, AppMapping> = {
       stream_days: ["stream_days"],
       snapshot: ["snapshot_date"],
     }),
-    revenueMultiplier: 1,
+    revenueMultiplier: 0.8,
     streamDurationUnit: "hours",
     sameKey: "latest",
   },
