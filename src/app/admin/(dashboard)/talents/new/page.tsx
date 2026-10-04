@@ -4,7 +4,7 @@ import { CreateTalentForm } from "@/components/admin/create-talent-form";
 export default async function NewTalentPage() {
   const patterns = await prisma.stepPattern.findMany({
     orderBy: { createdAt: "asc" },
-    select: { id: true, name: true, isDefault: true },
+    select: { id: true, name: true, isDefault: true, group: true },
   });
 
   return (

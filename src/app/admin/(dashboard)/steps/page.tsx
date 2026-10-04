@@ -31,6 +31,7 @@ export default async function AdminStepsPage({
     name: p.name,
     description: p.description,
     isDefault: p.isDefault,
+    group: p.group,
     stepCount: p._count.steps,
     talentCount: p._count.talents,
   }));

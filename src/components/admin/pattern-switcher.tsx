@@ -14,9 +14,12 @@ type PatternLite = {
   name: string;
   description: string | null;
   isDefault: boolean;
+  group: string | null;
   stepCount: number;
   talentCount: number;
 };
+
+const SUGGESTED_GROUPS = ["ANNIN", "NEXT"];
 
 export function PatternSwitcher({
   patterns,
@@ -33,6 +36,16 @@ export function PatternSwitcher({
   const [copyFromCurrent, setCopyFromCurrent] = useState(true);
 
   const current = patterns.find((p) => p.id === currentPatternId) ?? patterns[0];
+
+  const groupNames = Array.from(new Set(patterns.map((p) => p.group).filter((g): g is string => !!g)));
+  const datalistGroups = Array.from(new Set([...SUGGESTED_GROUPS, ...groupNames]));
+  const groupedPatterns = new Map<string, PatternLite[]>();
+  for (const p of patterns) {
+    const key = p.group ?? "未分類";
+    const list = groupedPatterns.get(key) ?? [];
+    list.push(p);
+    groupedPatterns.set(key, list);
+  }
 
   function handleSwitch(patternId: string) {
     router.push(`/admin/steps?pattern=${patternId}`);
@@ -101,11 +114,15 @@ export function PatternSwitcher({
           onChange={(e) => handleSwitch(e.target.value)}
           className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"
         >
-          {patterns.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-              {p.isDefault ? "（既定）" : ""}（STEP{p.stepCount}件・利用{p.talentCount}名）
-            </option>
+          {Array.from(groupedPatterns.entries()).map(([groupName, groupPatterns]) => (
+            <optgroup key={groupName} label={groupName}>
+              {groupPatterns.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.isDefault ? "（既定）" : ""}（STEP{p.stepCount}件・利用{p.talentCount}名）
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <button
@@ -140,7 +157,14 @@ export function PatternSwitcher({
         )}
       </div>
 
-      {current.description && <p className="mt-2 text-xs text-gray-400">{current.description}</p>}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {current.group && (
+          <span className="rounded-full border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
+            {current.group}
+          </span>
+        )}
+        {current.description && <p className="text-xs text-gray-400">{current.description}</p>}
+      </div>
       {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
 
       {renaming && (
@@ -161,6 +185,17 @@ export function PatternSwitcher({
               defaultValue={current.description ?? ""}
               className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
             />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">グループ（任意）</label>
+            <input
+              name="group"
+              defaultValue={current.group ?? ""}
+              list="pattern-group-suggestions"
+              placeholder="例: ANNIN, NEXT"
+              className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+            />
+            <p className="mt-1 text-xs text-gray-400">同じ名前にすると、パターン一覧でまとめて表示されます。</p>
           </div>
           <div className="flex gap-2">
             <button
@@ -197,6 +232,17 @@ export function PatternSwitcher({
             <label className="mb-1 block text-xs font-medium text-gray-600">説明（任意）</label>
             <input name="description" className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
           </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">グループ（任意）</label>
+            <input
+              name="group"
+              defaultValue={current.group ?? ""}
+              list="pattern-group-suggestions"
+              placeholder="例: ANNIN, NEXT"
+              className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+            />
+            <p className="mt-1 text-xs text-gray-400">同じ名前にすると、パターン一覧でまとめて表示されます。</p>
+          </div>
           <label className="flex items-center gap-2 text-xs text-gray-600">
             <input
               type="checkbox"
@@ -223,6 +269,12 @@ export function PatternSwitcher({
           </div>
         </form>
       )}
+
+      <datalist id="pattern-group-suggestions">
+        {datalistGroups.map((g) => (
+          <option key={g} value={g} />
+        ))}
+      </datalist>
     </div>
   );
 }

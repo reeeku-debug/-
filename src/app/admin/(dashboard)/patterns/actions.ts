@@ -21,11 +21,12 @@ export async function createPatternAction(formData: FormData): Promise<CreateRes
     return { success: false, error: "パターン名を入力してください。" };
   }
   const description = (formData.get("description") as string | null)?.trim() || null;
+  const group = (formData.get("group") as string | null)?.trim() || null;
   const sourcePatternId = (formData.get("sourcePatternId") as string | null) || null;
 
   const pattern = await prisma.$transaction(async (tx) => {
     const created = await tx.stepPattern.create({
-      data: { name, description },
+      data: { name, description, group },
     });
 
     if (sourcePatternId) {
@@ -82,8 +83,9 @@ export async function renamePatternAction(patternId: string, formData: FormData)
     return { success: false, error: "パターン名を入力してください。" };
   }
   const description = (formData.get("description") as string | null)?.trim() || null;
+  const group = (formData.get("group") as string | null)?.trim() || null;
 
-  await prisma.stepPattern.update({ where: { id: patternId }, data: { name, description } });
+  await prisma.stepPattern.update({ where: { id: patternId }, data: { name, description, group } });
   revalidatePatternPaths();
   return { success: true };
 }

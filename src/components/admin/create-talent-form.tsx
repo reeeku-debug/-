@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createTalentAction } from "@/app/admin/(dashboard)/talents/actions";
 import { CopyButton } from "@/components/copy-button";
 
-type PatternOption = { id: string; name: string; isDefault: boolean };
+type PatternOption = { id: string; name: string; isDefault: boolean; group: string | null };
 
 export function CreateTalentForm({ patterns }: { patterns: PatternOption[] }) {
   const [pending, setPending] = useState(false);
@@ -95,11 +95,23 @@ export function CreateTalentForm({ patterns }: { patterns: PatternOption[] }) {
           defaultValue={patterns.find((p) => p.isDefault)?.id ?? patterns[0]?.id}
           className="w-full rounded-lg border border-gray-300 px-4 py-2.5 focus:border-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-700"
         >
-          {patterns.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-              {p.isDefault ? "（既定）" : ""}
-            </option>
+          {Array.from(
+            patterns.reduce((map, p) => {
+              const key = p.group ?? "未分類";
+              const list = map.get(key) ?? [];
+              list.push(p);
+              map.set(key, list);
+              return map;
+            }, new Map<string, PatternOption[]>())
+          ).map(([groupName, groupPatterns]) => (
+            <optgroup key={groupName} label={groupName}>
+              {groupPatterns.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.isDefault ? "（既定）" : ""}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <p className="mt-1 text-xs text-gray-400">

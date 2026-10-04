@@ -57,6 +57,7 @@ model StepPattern {
   name        String // パターン名（例: "デフォルト", "配信初心者向け"）
   description String?
   isDefault   Boolean @default(false) // タレント登録時のデフォルト選択
+  group       String? // グループ名（例: "ANNIN", "NEXT"）。一覧表示を整理するための任意ラベル。
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
