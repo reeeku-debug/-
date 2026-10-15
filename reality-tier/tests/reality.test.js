@@ -120,7 +120,7 @@ const HEADER = 'ID,配信者名,REALITYランク,配信回数,配信時間,視�
 test('CSVの列名ゆれ・引用符・時間表記・イベント一覧を読み取れる', () => {
   const ctx = load();
   const csv =
-    '﻿' + HEADER + '\n' +
+    '\uFEFF' + HEADER + '\n' +
     'a1,"みるね, 配信中",A,10,12:30:00,100,"1,234.5",999,"夏祭り\n秋イベ",2025/06/14\n' +
     'b2,たね,B,3,7.5,10,0,0,3,\n' +
     ',合計,,,,,,,,\n';
@@ -267,4 +267,29 @@ test('期間が月をまたぐCSVはエラーとして記録される', () => {
   });
   assert.equal(r.ok, false);
   assert.match(ss.sheets['取込ログ'].cells[1][5], /^エラー：期間が月をまたいでいます/);
+});
+
+// ---- アプリの書き出しCSV → スプレッドシート ----
+test('アプリの書き出しCSVで月次RAWの各月を置き換え、担当者は空欄だけ埋める', () => {
+  const ctx = load();
+  const ss = makeSpreadsheet();
+  ss.sheets['月次RAW'].cells.push([202607, 'old', '旧', 'A', 1, 1, 0, 1, 0, 0, '', '202607|old', 'x']);
+  ss.sheets['月次RAW'].cells.push([202605, 'keep', '残る', 'A', 1, 1, 0, 1, 0, 0, '', '202605|keep', 'x']);
+  ss.sheets['タレントマスタ'].cells.push(['m', 'みるね旧名', '井上', 'メモ', '初期登録']);
+  ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss };
+  ctx.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) };
+  vm.runInContext('refreshAll_ = function () {};', ctx);
+
+  const text = '\uFEFF月キー,ID,配信者名,REALITYランク,配信回数,配信時間（h）,視聴者数,ギフト金額（円）,スコア,イベント参加数,初配信日,担当者\r\n' +
+    '202607,m,みるね,A,10,70.5,0,120000,1,5,2025/06/14,新田\r\n' +
+    '202607,t,たね,B,1,2,0,500,0,0,,渡邊\r\n' +
+    '202608,m,みるね新名,A,9,61.1,0,300000,1,5,2025/06/14,新田\r\n';
+  const msg = run(ctx, 'importAppExport("REALITY_アプリ書き出し.csv", text)', { text });
+  assert.match(msg, /^OK・2ヶ月/);
+
+  const monthly = ss.sheets['月次RAW'].cells.slice(1).filter((l) => l && l[0] !== '' && l[0] !== undefined);
+  assert.deepEqual(monthly.map((l) => [l[0], l[1]]), [[202605, 'keep'], [202607, 'm'], [202607, 't'], [202608, 'm']]);
+  const master = ss.sheets['タレントマスタ'].cells.slice(4);
+  assert.deepEqual(master.map((l) => [l[0], l[1], l[2]]), [['m', 'みるね新名', '井上'], ['t', 'たね', '渡邊']]);
+  assert.deepEqual(ss.sheets['ティア判定'].cells.slice(4).map((l) => l[0]).filter(Boolean), ['m']);
 });

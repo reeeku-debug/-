@@ -85,6 +85,7 @@ function onOpen() {
     .createMenu('REALITY取込')
     .addItem('CSVをアップロードして取込…', 'showUploadDialog')
     .addItem('フォルダのCSVを今すぐ取込', 'dailyImport')
+    .addItem('アプリの書き出しCSVを取込（全月）…', 'showAppImportDialog')
     .addSeparator()
     .addItem('月別ティアを更新', 'refreshMonthlyView')
     .addItem('ティア推移を再計算', 'refreshTierHistory')
@@ -197,6 +198,78 @@ function importUploadedCsv(files) {
   return messages;
 }
 
+// ===== 取込（ティア判定アプリの書き出し） ===================================
+
+function showAppImportDialog() {
+  const html = HtmlService.createHtmlOutput(APP_IMPORT_HTML_).setWidth(480).setHeight(300);
+  SpreadsheetApp.getUi().showModalDialog(html, 'アプリの書き出しCSVを取り込む');
+}
+
+/**
+ * ティア判定アプリの「スプレッドシート用に書き出し」CSVを取り込む。
+ * CSVに入っている月を、月次RAWでまるごと置き換える（日次RAWは変えない）
+ * @return {string} 結果メッセージ
+ */
+function importAppExport(fileName, text) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let message = '';
+  withLock_(function () {
+    try {
+      const byMonth = parseAppExport_(text);
+      const months = Object.keys(byMonth).map(Number).sort(function (a, b) { return a - b; });
+      let count = 0;
+      let records = [];
+      months.forEach(function (m) {
+        count += byMonth[m].length;
+        records = records.concat(byMonth[m]); // 古い月から順に：名前は最新月のものが残る
+      });
+      replaceMonths_(ss, byMonth, 'アプリから取込', fileName);
+      upsertMaster_(ss, records);
+      const warn = updateJudgeRoster_(ss);
+      const range = monthLabel_(months[0]) + '〜' + monthLabel_(months[months.length - 1]);
+      message = 'OK・' + months.length + 'ヶ月（' + range + '）' + (warn ? '（' + warn + '）' : '');
+      appendLog_(ss, '（アプリ書き出し）', fileName, '', count, message);
+      refreshAll_(ss);
+    } catch (err) {
+      message = 'エラー：' + (err && err.message ? err.message : err);
+      appendLog_(ss, '（アプリ書き出し）', fileName, '', 0, message);
+    }
+  });
+  return message;
+}
+
+/** アプリの書き出しCSV → {yyyymm: records} */
+function parseAppExport_(text) {
+  const rows = parseCsvText_(String(text || '').replace(/^\uFEFF/, ''), ',').filter(function (r) {
+    return r.some(function (c) { return String(c).trim() !== ''; });
+  });
+  if (rows.length < 2) throw new Error('データ行がありません');
+  const head = rows[0].map(normHeader_);
+  const col = function (name) { return head.indexOf(normHeader_(name)); };
+  const c = {
+    month: col('月キー'), id: col('ID'), name: col('配信者名'), rank: col('REALITYランク'), count: col('配信回数'),
+    hours: col('配信時間（h）'), viewers: col('視聴者数'), gift: col('ギフト金額（円）'), score: col('スコア'),
+    events: col('イベント参加数'), debut: col('初配信日'), owner: col('担当者'),
+  };
+  if (c.month < 0 || c.id < 0 || c.gift < 0 || c.hours < 0) {
+    throw new Error('ティア判定アプリの「スプレッドシート用に書き出し」CSVではありません（月キー・ID・配信時間・ギフト金額の列が必要）');
+  }
+  const byMonth = {};
+  rows.slice(1).forEach(function (r) {
+    const m = Number(cell_(r, c.month));
+    const id = cell_(r, c.id);
+    if (!m || !id) return;
+    const d = parseDate_(cell_(r, c.debut));
+    (byMonth[m] || (byMonth[m] = [])).push({
+      id: id, name: cell_(r, c.name), rank: cell_(r, c.rank), count: num_(cell_(r, c.count)), hours: num_(cell_(r, c.hours)),
+      viewers: num_(cell_(r, c.viewers)), gift: num_(cell_(r, c.gift)), score: num_(cell_(r, c.score)),
+      events: num_(cell_(r, c.events)), debut: d ? fmtDate_(d) : '', owner: cell_(r, c.owner),
+    });
+  });
+  if (!Object.keys(byMonth).length) throw new Error('データ行がありません');
+  return byMonth;
+}
+
 // ===== 取込本体 ============================================================
 
 /**
@@ -290,22 +363,33 @@ function appendDaily_(sheet, period, records, prevById, fileName) {
 
 /** 月次RAWのその月の行を、最新の累計で置き換える（月キー順を保つ） */
 function replaceMonthly_(ss, monthKey, records, fileName) {
+  const byMonth = {};
+  byMonth[monthKey] = records;
+  replaceMonths_(ss, byMonth, '日次取込', fileName);
+}
+
+/** 月次RAWの複数の月を一度に置き換える。byMonth: {yyyymm: records} */
+function replaceMonths_(ss, byMonth, label, fileName) {
   const sheet = ss.getSheetByName(SHEET.monthly);
   const width = 13;
   const last = sheet.getLastRow();
   const kept = last >= 2
     ? sheet.getRange(2, 1, last - 1, width).getValues().filter(function (r) {
-        return r[0] !== '' && Number(r[0]) !== monthKey;
+        return r[0] !== '' && !(Number(r[0]) in byMonth);
       })
     : [];
-  const stamp = '日次取込 ' + Utilities.formatDate(new Date(), TZ, 'yyyy/MM/dd HH:mm') + '（' + fileName + '）';
-  const fresh = records
-    .slice()
-    .sort(function (a, b) { return b.gift - a.gift; })
-    .map(function (r) {
-      return [monthKey, r.id, r.name, r.rank, r.count, r.hours, r.viewers, r.gift, r.score, r.events,
-        r.debut || '', monthKey + '|' + r.id, stamp];
-    });
+  const stamp = label + ' ' + Utilities.formatDate(new Date(), TZ, 'yyyy/MM/dd HH:mm') + '（' + fileName + '）';
+  let fresh = [];
+  Object.keys(byMonth).forEach(function (key) {
+    const monthKey = Number(key);
+    fresh = fresh.concat(byMonth[key]
+      .slice()
+      .sort(function (a, b) { return b.gift - a.gift; })
+      .map(function (r) {
+        return [monthKey, r.id, r.name, r.rank, r.count, r.hours, r.viewers, r.gift, r.score, r.events,
+          r.debut || '', monthKey + '|' + r.id, stamp];
+      }));
+  });
   const all = kept.concat(fresh);
   all.sort(function (a, b) { return Number(a[0]) - Number(b[0]); }); // 安定ソート：同じ月の並びは保つ
 
@@ -318,12 +402,15 @@ function replaceMonthly_(ss, monthKey, records, fileName) {
   }
 }
 
-/** タレントマスタ：新しいIDを追加し、配信者名を最新に更新（担当者・メモは触らない） */
+/**
+ * タレントマスタ：新しいIDを追加し、配信者名を最新に更新。
+ * 担当者は records に owner があり、シート側が空欄のときだけ埋める（メモは触らない）
+ */
 function upsertMaster_(ss, records) {
   const sheet = ss.getSheetByName(SHEET.master);
   const last = Math.max(sheet.getLastRow(), MASTER_FIRST_ROW - 1);
   const n = last - MASTER_FIRST_ROW + 1;
-  const cur = n > 0 ? sheet.getRange(MASTER_FIRST_ROW, 1, n, 2).getValues() : [];
+  const cur = n > 0 ? sheet.getRange(MASTER_FIRST_ROW, 1, n, 3).getValues() : [];
   const rowById = {};
   let lastIdRow = MASTER_FIRST_ROW - 1;
   cur.forEach(function (r, i) {
@@ -334,21 +421,35 @@ function upsertMaster_(ss, records) {
   });
 
   let namesChanged = false;
+  let ownersChanged = false;
   const added = [];
+  const addedAt = {};
   const today = Utilities.formatDate(new Date(), TZ, 'yyyy/MM/dd');
   records.forEach(function (r) {
-    if (r.id in rowById) {
-      if (r.name && cur[rowById[r.id]][1] !== r.name) {
-        cur[rowById[r.id]][1] = r.name;
+    if (r.id in addedAt) {
+      const a = added[addedAt[r.id]];
+      if (r.name) a[1] = r.name;
+      if (r.owner && !a[2]) a[2] = r.owner;
+    } else if (r.id in rowById) {
+      const row = cur[rowById[r.id]];
+      if (r.name && row[1] !== r.name) {
+        row[1] = r.name;
         namesChanged = true;
       }
+      if (r.owner && String(row[2]).trim() === '') {
+        row[2] = r.owner;
+        ownersChanged = true;
+      }
     } else {
-      rowById[r.id] = -1;
-      added.push([r.id, r.name, '', '', today]);
+      addedAt[r.id] = added.length;
+      added.push([r.id, r.name, r.owner || '', '', today]);
     }
   });
   if (namesChanged) {
     sheet.getRange(MASTER_FIRST_ROW, 2, cur.length, 1).setNumberFormat('@').setValues(cur.map(function (r) { return [r[1]]; }));
+  }
+  if (ownersChanged) {
+    sheet.getRange(MASTER_FIRST_ROW, 3, cur.length, 1).setValues(cur.map(function (r) { return [r[2]]; }));
   }
   if (added.length) {
     ensureRows_(sheet, lastIdRow + added.length);
@@ -793,7 +894,7 @@ function changeMark_(x) {
 
 /** REALITYのCSVテキストを [{id, name, rank, count, hours, viewers, gift, score, events, debut}] にする */
 function parseRealityCsv_(text) {
-  text = String(text || '').replace(/^﻿/, '');
+  text = String(text || '').replace(/^\uFEFF/, '');
   const firstLine = text.split(/\r?\n/, 1)[0];
   const delimiter = firstLine.indexOf('\t') >= 0 && firstLine.indexOf(',') < 0 ? '\t' : ',';
   const rows = parseCsvText_(text, delimiter).filter(function (r) {
@@ -860,7 +961,7 @@ function findColumns_(headerRow) {
 
 function normHeader_(s) {
   return String(s == null ? '' : s)
-    .replace(/^﻿/, '')
+    .replace(/^\uFEFF/, '')
     .replace(/[！-～]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xfee0); })
     .replace(/[\s　"']/g, '')
     .toLowerCase();
@@ -1144,6 +1245,32 @@ const UPLOAD_HTML_ = [
   '  google.script.run.withSuccessHandler(function(msgs){log.textContent=msgs.join("\\n")+"\\n\\n完了しました。このウィンドウは閉じてOKです。";})',
   '    .withFailureHandler(function(err){log.innerHTML="<span class=err>"+String(err.message||err).replace(/</g,"&lt;")+"</span>";})',
   '    .importUploadedCsv(payload);',
+  '};',
+  '</script>',
+].join('\n');
+
+const APP_IMPORT_HTML_ = [
+  '<style>',
+  'body{font-family:sans-serif;font-size:13px;margin:0;padding:4px 8px;color:#222}',
+  'button{margin-top:12px;padding:6px 16px;font-size:13px}#log{margin-top:10px;white-space:pre-wrap}.err{color:#c00}',
+  '</style>',
+  '<div>ティア判定アプリの「スプレッドシート用に書き出し」で保存したCSVを選んでください。',
+  'CSVに入っている月を、月次RAWでまるごと置き換えます（担当者は、タレントマスタが空欄の人だけ埋めます）。</div>',
+  '<input type="file" id="f" accept=".csv" style="margin-top:10px">',
+  '<div><button id="go" disabled>取り込む</button></div>',
+  '<div id="log"></div>',
+  '<script>',
+  'var file=null;',
+  'document.getElementById("f").onchange=function(e){file=e.target.files[0];document.getElementById("go").disabled=!file;};',
+  'document.getElementById("go").onclick=function(){',
+  '  var btn=this,log=document.getElementById("log");btn.disabled=true;log.textContent="取込中…（1分ほどかかることがあります）";',
+  '  var r=new FileReader();',
+  '  r.onload=function(){',
+  '    google.script.run.withSuccessHandler(function(msg){log.textContent=msg+"\\n\\n完了しました。このウィンドウは閉じてOKです。";})',
+  '      .withFailureHandler(function(err){btn.disabled=false;log.innerHTML="<span class=err>"+String(err.message||err).replace(/</g,"&lt;")+"</span>";})',
+  '      .importAppExport(file.name,r.result);',
+  '  };',
+  '  r.readAsText(file,"utf-8");',
   '};',
   '</script>',
 ].join('\n');

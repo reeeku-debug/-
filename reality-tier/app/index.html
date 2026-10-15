@@ -212,6 +212,7 @@ button { cursor: pointer; }
     <div class="actions">
       <button class="btn" id="btn-criteria" type="button">判定基準</button>
       <button class="btn" id="btn-export" type="button" disabled>この月をCSV書き出し</button>
+      <button class="btn" id="btn-sheet" type="button" disabled title="スプレッドシートのメニュー「REALITY取込 → アプリの書き出しCSVを取込（全月）」で読み込めます">スプレッドシート用に書き出し</button>
       <button class="btn primary" id="btn-import" type="button">CSVを取り込む</button>
     </div>
   </header>
@@ -484,6 +485,7 @@ button { cursor: pointer; }
       $('empty').hidden = false;
       $('tabs').replaceChildren();
       $('btn-export').disabled = true;
+      $('btn-sheet').disabled = true;
       $('empty-title').textContent = state.loaded ? 'まだ月次データがありません' : 'データを読み込んでいます…';
       $('empty-text').textContent = state.loaded
         ? '右上の「CSVを取り込む」から、REALITYの配信レポートCSVを入れてください。取り込んだ月がタブとして追加され、最新の確定月が表示されます。'
@@ -495,6 +497,7 @@ button { cursor: pointer; }
     $('empty').hidden = true;
     $('view').hidden = false;
     $('btn-export').disabled = !state.downloads;
+    $('btn-sheet').disabled = !state.downloads;
     renderTabs(months);
     renderStrip();
     renderOwners();
@@ -694,7 +697,7 @@ button { cursor: pointer; }
     if (f !== '' || row.length) { row.push(f); rows.push(row); }
     return rows;
   }
-  const norm = (s) => String(s == null ? '' : s).replace(/^﻿/, '')
+  const norm = (s) => String(s == null ? '' : s).replace(/^\uFEFF/, '')
     .replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0)).replace(/[\s　"']/g, '').toLowerCase();
   function findColumns(header) {
     const n = header.map(norm); const out = {};
@@ -720,7 +723,7 @@ button { cursor: pointer; }
     return s.split(/[\r\n,、，;；|｜]+/).filter((x) => x.trim()).length;
   }
   function parseRealityCsv(text) {
-    text = String(text || '').replace(/^﻿/, '');
+    text = String(text || '').replace(/^\uFEFF/, '');
     const first = text.split(/\r?\n/, 1)[0];
     const delim = first.indexOf('\t') >= 0 && first.indexOf(',') < 0 ? '\t' : ',';
     const rows = parseCsvText(text, delim).filter((r) => r.some((c) => String(c).trim() !== ''));
@@ -843,7 +846,25 @@ button { cursor: pointer; }
     const lines = [head.map(q).join(',')].concat(state.view.list.map((x) => [x.id, x.name, x.owner, x.tier, x.prevTier, x.change, x.rank, x.debutDate, x.debutMonth, x.elapsed,
       fmtH(x.hours), x.events, Math.round(x.sales), Math.round(x.sales1), Math.round(x.sales2), Math.round(x.avg3), x.basic ? '◯' : '✕',
       x.firstHours === '' ? '' : fmtH(x.firstHours), x.firstEvents, x.debutMax === '' ? '' : Math.round(x.debutMax), Math.round(x.recentMax), x.reason, x.next, Math.round(x.company)].map(q).join(',')));
-    try { await state.downloads.save({ filename: 'REALITY_ティア_' + state.view.month + '.csv', data: '﻿' + lines.join('\r\n') }); }
+    try { await state.downloads.save({ filename: 'REALITY_ティア_' + state.view.month + '.csv', data: '\uFEFF' + lines.join('\r\n') }); }
+    catch (e) { if (e && e.code !== 'cancelled') showNotice('CSVを書き出せませんでした。もう一度お試しください。'); }
+  }
+
+  /** スプレッドシート（月次RAW）と同じ列で全月を書き出す。担当者はタレントマスタの空欄を埋めるのに使う */
+  async function exportForSheet() {
+    if (!state.downloads) return;
+    const q = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const head = ['月キー', 'ID', '配信者名', 'REALITYランク', '配信回数', '配信時間（h）', '視聴者数', 'ギフト金額（円）', 'スコア', 'イベント参加数', '初配信日', '担当者'];
+    const lines = [head.join(',')];
+    Object.keys(state.months).map(Number).sort((a, b) => a - b).forEach((m) => {
+      (state.months[m].rows || []).forEach((r) => {
+        const owner = (state.talents[r[R.id]] && state.talents[r[R.id]].owner) || '';
+        lines.push([m, r[R.id], r[R.name], r[R.rank], r[R.count], r[R.hours], r[R.viewers], r[R.gift], r[R.score], r[R.events], r[R.debut], owner].map(q).join(','));
+      });
+    });
+    const d = new Date();
+    const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0');
+    try { await state.downloads.save({ filename: 'REALITY_アプリ書き出し_' + stamp + '.csv', data: '\uFEFF' + lines.join('\r\n') }); }
     catch (e) { if (e && e.code !== 'cancelled') showNotice('CSVを書き出せませんでした。もう一度お試しください。'); }
   }
 
@@ -863,6 +884,7 @@ button { cursor: pointer; }
   $('cr-close').addEventListener('click', () => ($('criteria-modal').hidden = true));
   $('criteria-form').addEventListener('submit', saveCriteria);
   $('btn-export').addEventListener('click', exportMonth);
+  $('btn-sheet').addEventListener('click', exportForSheet);
   $('scrim').addEventListener('click', closeDrawer);
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
