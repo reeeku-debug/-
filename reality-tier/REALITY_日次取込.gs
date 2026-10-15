@@ -1037,7 +1037,7 @@ function parseCsvText_(text, delimiter) {
 
 function readBlobText_(blob) {
   let text = blob.getDataAsString('UTF-8');
-  if (text.indexOf('�') >= 0) text = blob.getDataAsString('Shift_JIS');
+  if (text.indexOf('\uFFFD') >= 0) text = blob.getDataAsString('Shift_JIS');
   return text;
 }
 
