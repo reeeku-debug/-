@@ -1,0 +1,146 @@
+// 情報収集・案件マッチングアプリ - Prisma schema
+// PostgreSQL（Vercel等のサーバーレス環境にデプロイするため）。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // Neon等のプール接続(pgbouncer)はマイグレーション実行に必要な
+  // アドバイザリーロックをサポートしないため、マイグレーション専用に
+  // 直接接続を使う。Vercel+Neon連携では自動的に用意される変数。
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+// role: "RESPONDENT" | "ADMIN"
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         String   @default("RESPONDENT")
+
+  realName  String? // 本名（管理者のみ閲覧可）
+  stageName String? // 芸名・活動名
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  profile        Profile?
+  achievements   Achievement[]
+  hobbies        Hobby[]
+  skills         Skill[]
+  desiredWorks   DesiredWork[]
+  socialAccounts SocialAccount[]
+  adminNote      AdminNote?
+  candidacies    ProjectCandidate[]
+}
+
+model Profile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  gender        String? // 性別
+  age           Int? // 年齢
+  residenceArea String? // 住んでいる地域（都道府県）
+
+  finalDream   String? // 最終的な夢
+  halfYearGoal String? // 半年後の目標
+
+  isDraft     Boolean   @default(true) // フォーム未完了（一時保存中）
+  submittedAt DateTime? // 最終送信日時
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Achievement {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String // 実績内容
+  category  String? // カテゴリ (イベント出演, 配信, YouTube, TikTok, 企業案件, ライブ, MC, 声優 など)
+  yearMonth String? // 年月 (自由入力 例: 2025-03)
+  createdAt DateTime @default(now())
+}
+
+model Hobby {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+}
+
+model Skill {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+}
+
+model DesiredWork {
+  id     String  @id @default(cuid())
+  userId String
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String // カテゴリ名 (ゲーム案件, 商品PR, その他 など)
+  note   String? // 「その他」選択時の自由入力
+}
+
+// platform: "YOUTUBE" | "X" | "TIKTOK" | "INSTAGRAM" | "REALITY" | "OTHER"
+model SocialAccount {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform  String
+  url       String?
+  followers Int?
+  label     String? // OTHER選択時のSNS名
+}
+
+model AdminNote {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @default("")
+  updatedAt DateTime @updatedAt
+}
+
+// status: "RECRUITING" | "SELECTING" | "NEGOTIATING" | "DECIDED" | "COMPLETED" | "CANCELLED"
+model Project {
+  id          String @id @default(cuid())
+  name        String // 案件名
+  description String // 案件内容
+  genre       String // 案件ジャンル
+
+  desiredActivities String @default("") // 希望する活動 (カンマ区切り: YouTube,TikTok,X,Instagram,配信,イベント,その他)
+  idealPersona       String? // 求める人物像
+  requiredConditions String? // 必須条件
+  otherConditions    String? // その他条件
+
+  status String @default("RECRUITING")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  candidates ProjectCandidate[]
+}
+
+// status: "SUGGESTED" | "SHORTLISTED" | "FAVORITE" | "EXCLUDED"
+model ProjectCandidate {
+  id         String  @id @default(cuid())
+  projectId  String
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  matchScore Int // 0-100
+  reasons    String // JSON配列文字列 (おすすめ理由)
+  status     String  @default("SUGGESTED")
+  adminNote  String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, userId])
+}
