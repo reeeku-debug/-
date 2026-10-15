@@ -25,6 +25,12 @@ const FOLDER_ID = '1XUUQopVjWOikkU2_QS9glZZN7NhzLQIc';
 const CHECK_MINUTES = 15;
 
 /**
+ * REALITYティア判定ダッシュボード（Vercel）との合言葉。推測されにくい長い英数字に書き換える。
+ * ダッシュボードの環境変数 GAS_TOKEN にも同じものを設定する。
+ */
+const TOKEN = 'ここを長い合言葉に書き換える';
+
+/**
  * CSVの列名の候補。REALITYのCSVの列名が変わったら、ここに列名を追加してください。
  * 左から順に探し、最初に見つかった列を使います（全角/半角・空白・大文字小文字の違いは無視）。
  */
@@ -138,6 +144,115 @@ function fixJudgeFormulas_(ss) {
     if (changed) range.setFormulas(formulas);
   });
   return fixed;
+}
+
+// ===== ダッシュボード用の窓口（ウェブアプリ） ===============================
+//
+// 「デプロイ → 新しいデプロイ → ウェブアプリ」（実行ユーザー：自分／アクセス：全員）でデプロイし、
+// 表示されたURLをダッシュボードの GAS_WEBAPP_URL に設定する。合言葉（TOKEN）がないリクエストは拒否する。
+
+function doPost(e) {
+  try {
+    const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    if (!TOKEN || TOKEN.indexOf('ここを') === 0) return json_({ ok: false, error: 'スクリプトの TOKEN が未設定です' });
+    if (req.token !== TOKEN) return json_({ ok: false, error: 'unauthorized' });
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    switch (req.action) {
+      case 'load':
+        return json_(Object.assign({ ok: true }, apiLoad_(ss)));
+      case 'import':
+        return json_({ ok: true, messages: importUploadedCsv(req.files || []) });
+      case 'saveTalent':
+        withLock_(function () { saveTalent_(ss, String(req.id || ''), String(req.owner || ''), String(req.memo || '')); });
+        return json_({ ok: true });
+      case 'saveCriteria':
+        withLock_(function () { saveCriteria_(ss, req.criteria || {}); });
+        return json_({ ok: true });
+      default:
+        return json_({ ok: false, error: 'unknown action: ' + req.action });
+    }
+  } catch (err) {
+    return json_({ ok: false, error: String(err && err.message ? err.message : err) });
+  }
+}
+
+function doGet() {
+  return json_({ ok: true, message: 'REALITY ティア判定の窓口は動いています' });
+}
+
+function json_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/** ダッシュボードに渡すデータ一式（日付は文字列にする） */
+function apiLoad_(ss) {
+  const str = function (v) { return isDate_(v) ? fmtDate_(v) : v === null || v === undefined ? '' : v; };
+  const months = readMonthlyRows_(ss).filter(function (r) { return r[0] !== '' && r[1] !== ''; }).map(function (r) {
+    return [Number(r[0]), String(r[1]).trim(), String(r[2]), String(r[3]), num_(r[4]), num_(r[5]), num_(r[6]), num_(r[7]), num_(r[8]), num_(r[9]), str(r[10])];
+  });
+
+  const periods = {};
+  const daily = ss.getSheetByName(SHEET.daily);
+  if (daily.getLastRow() >= 2) {
+    daily.getRange(2, 2, daily.getLastRow() - 1, 2).getValues().forEach(function (r) {
+      const s = parseDate_(r[0]);
+      const e = parseDate_(r[1]);
+      if (!s || !e) return;
+      const m = ym_(s);
+      if (!periods[m] || fmtDate_(e) > periods[m]) periods[m] = fmtDate_(e);
+    });
+  }
+
+  const master = ss.getSheetByName(SHEET.master);
+  const talents = master.getLastRow() >= MASTER_FIRST_ROW
+    ? master.getRange(MASTER_FIRST_ROW, 1, master.getLastRow() - MASTER_FIRST_ROW + 1, 4).getValues()
+        .filter(function (r) { return String(r[0]).trim() !== ''; })
+        .map(function (r) { return [String(r[0]).trim(), String(r[1]), String(r[2]), String(r[3])]; })
+    : [];
+
+  const logSheet = ss.getSheetByName(SHEET.log);
+  const logLast = logSheet.getLastRow();
+  const log = logLast >= 2
+    ? logSheet.getRange(Math.max(2, logLast - 19), 1, Math.min(20, logLast - 1), 6).getValues().reverse().map(function (r) {
+        return [isDate_(r[0]) ? Utilities.formatDate(r[0], TZ, 'yyyy/MM/dd HH:mm') : String(r[0]), String(r[2]), str(r[3]), num_(r[4]), String(r[5])];
+      })
+    : [];
+
+  return { months: months, periods: periods, talents: talents, criteria: readConfig_(ss), log: log, spreadsheetUrl: ss.getUrl() };
+}
+
+/** タレントマスタの担当者・メモを保存（いない人は行を足す） */
+function saveTalent_(ss, id, owner, memo) {
+  if (!id) throw new Error('ID がありません');
+  const sheet = ss.getSheetByName(SHEET.master);
+  const last = sheet.getLastRow();
+  const ids = last >= MASTER_FIRST_ROW
+    ? sheet.getRange(MASTER_FIRST_ROW, 1, last - MASTER_FIRST_ROW + 1, 1).getValues().map(function (r) { return String(r[0]).trim(); })
+    : [];
+  const i = ids.indexOf(id);
+  if (i >= 0) {
+    sheet.getRange(MASTER_FIRST_ROW + i, 3, 1, 2).setValues([[owner, memo]]);
+  } else {
+    const row = Math.max(last, MASTER_FIRST_ROW - 1) + 1;
+    ensureRows_(sheet, row);
+    sheet.getRange(row, 1).setNumberFormat('@');
+    sheet.getRange(row, 1, 1, 5).setValues([[id, '', owner, memo, Utilities.formatDate(new Date(), TZ, 'yyyy/MM/dd')]]);
+  }
+}
+
+/** 設定シートの判定基準を保存し、ティア推移・月別ティアを作り直す */
+function saveCriteria_(ss, c) {
+  const s = ss.getSheetByName(SHEET.settings);
+  const n = function (v, name) {
+    const x = Number(v);
+    if (!isFinite(x) || x < 0) throw new Error(name + ' の値が不正です');
+    return x;
+  };
+  s.getRange('B5').setValue(n(c.rate, '還元率'));
+  s.getRange('B11:B16').setValues([
+    [n(c.hours, '配信時間')], [n(c.events, 'イベント数')], [n(c.t1, 'T1')], [n(c.t2, 'T2')], [n(c.t3, 'T3')], [c.rescue ? 'ON' : 'OFF'],
+  ]);
+  refreshAll_(ss);
 }
 
 // ===== 取込（フォルダ） ====================================================

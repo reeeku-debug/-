@@ -100,13 +100,13 @@ function makeSpreadsheet() {
   return { sheets, getSheetByName: (n) => sheets[n] || null };
 }
 
-function load() {
+function load(source = SOURCE) {
   const ctx = {
     console,
     Utilities: { formatDate: () => '2026/10/15 10:00' },
   };
   vm.createContext(ctx);
-  vm.runInContext(SOURCE, ctx);
+  vm.runInContext(source, ctx);
   return ctx;
 }
 const run = (ctx, expr, vars = {}) => {
@@ -310,4 +310,38 @@ test('実際のREALITY配信レポートCSVの列名を読み取れる', () => {
   assert.equal(recs[0].score, 9999);
   assert.equal(recs[0].events, 2);
   assert.equal(recs[0].debut, '2025/06/14');
+});
+
+// ---- ダッシュボード用の窓口（doPost） ----
+test('doPost：合言葉の確認・データ読み込み・担当者の保存・CSV取込', () => {
+  const ctx = load(SOURCE.replace("const TOKEN = 'ここを長い合言葉に書き換える';", "const TOKEN = 'secret-token';"));
+  const ss = makeSpreadsheet();
+  ss.getUrl = () => 'https://docs.google.com/spreadsheets/d/x/edit';
+  ss.sheets['月次RAW'].cells.push([202608, 'm', 'みるね', 'A', 9, 61.1, 0, 300000, 1, 5, new Date(2025, 5, 14), '202608|m', 'x']);
+  ss.sheets['タレントマスタ'].cells.push(['m', 'みるね', '', '', '初期登録']);
+  ctx.SpreadsheetApp = { getActiveSpreadsheet: () => ss, flush: () => {} };
+  ctx.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) };
+  ctx.ContentService = { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ text: t, setMimeType() { return this; } }) };
+  vm.runInContext('refreshAll_ = function () {};', ctx);
+  const post = (body) => JSON.parse(run(ctx, 'doPost({ postData: { contents: body } }).text', { body: JSON.stringify(body) }));
+
+  assert.equal(post({ token: 'wrong', action: 'load' }).error, 'unauthorized');
+
+  const loaded = post({ token: 'secret-token', action: 'load' });
+  assert.equal(loaded.ok, true);
+  assert.deepEqual(loaded.months, [[202608, 'm', 'みるね', 'A', 9, 61.1, 0, 300000, 1, 5, '2025/06/14']]);
+  assert.equal(loaded.criteria.hours, 60);
+  assert.equal(loaded.spreadsheetUrl, 'https://docs.google.com/spreadsheets/d/x/edit');
+
+  assert.equal(post({ token: 'secret-token', action: 'saveTalent', id: 'm', owner: '井上', memo: '連絡済み' }).ok, true);
+  assert.equal(post({ token: 'secret-token', action: 'saveTalent', id: 'new', owner: '新田', memo: '' }).ok, true);
+  assert.deepEqual(post({ token: 'secret-token', action: 'load' }).talents, [['m', 'みるね', '井上', '連絡済み'], ['new', '', '新田', '']]);
+
+  const csv = '配信者名,ID,ランク,合計配信回数,合計配信時間（時）,合計視聴者数,合計ギフト金額,合計獲得スコア,参加中のイベント,初配信日\nみるね,m,A,3,10.5,0,50000,1,1,2025/06/14\n';
+  const imp = post({ token: 'secret-token', action: 'import', files: [{ name: 'streamer_20261001_20261015.csv', text: csv, start: '2026-10-01', end: '2026-10-15' }] });
+  assert.equal(imp.ok, true);
+  assert.match(imp.messages[0], /^streamer_20261001_20261015\.csv：OK・1行/);
+  const after = post({ token: 'secret-token', action: 'load' });
+  assert.deepEqual(after.periods, { 202610: '2026/10/15' });
+  assert.equal(after.log[0][4].startsWith('OK'), true);
 });
