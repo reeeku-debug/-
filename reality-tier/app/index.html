@@ -258,7 +258,7 @@ button { cursor: pointer; }
 <div class="modal" id="import-modal" hidden>
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="imp-title">
     <h2 id="imp-title">CSVを取り込む</h2>
-    <p>REALITYの配信レポートCSVをドロップするか選んでください（複数可・UTF-8／Shift_JIS）。ファイル名 <span class="num">streamer_20261001_20261014.csv</span> の開始日から対象月を決めます。同じ月を取り込み直すと、その月の数値を最新の累計で置き換えます。</p>
+    <p>REALITYの配信レポートCSVをドロップするか選んでください（複数可・UTF-8／Shift_JIS）。ファイル名 <span class="num">streamer_20261001_20261014.csv</span> の開始日から対象月を決めます。同じ月を取り込み直すと、その月の数値を最新の累計で置き換えます。取り込んだCSVはスプレッドシートにも自動で送られ、15分以内に反映されます。</p>
     <label class="drop" id="drop">
       <span>ここにCSVをドロップ</span>
       <span class="btn">ファイルを選ぶ</span>
@@ -286,6 +286,7 @@ button { cursor: pointer; }
         <label>会社への還元率（%）<input id="c-rate" type="number" min="0" max="100" step="1" required></label>
       </div>
       <label class="check"><input id="c-rescue" type="checkbox"> 既存タレントの救済（デビュー4ヶ月目以降でも直近3ヶ月にT3の月売上があればT3）</label>
+      <label>スプレッドシート連携フォルダ（ドライブのフォルダID。空欄なら送らない）<input id="c-folder" type="text" autocomplete="off" spellcheck="false"></label>
       <div class="dialog-actions">
         <span class="saved" id="cr-msg"></span>
         <button class="btn" id="cr-close" type="button">閉じる</button>
@@ -321,7 +322,8 @@ button { cursor: pointer; }
 
   // ===== 状態 =====
   const state = {
-    db: null, user: null, downloads: null, canWrite: null,
+    db: null, user: null, downloads: null, mcp: null, canWrite: null,
+    sync: { folderId: '' }, // スプレッドシート連携：CSVを置くドライブのフォルダ
     months: {},          // yyyymm -> doc body
     criteria: Object.assign({}, DEFAULT_CRITERIA),
     talents: {},         // id -> {owner, memo}
@@ -769,9 +771,10 @@ button { cursor: pointer; }
   function closeImport() { $('import-modal').hidden = true; }
   async function addFiles(files) {
     for (const file of files) {
-      const item = { name: file.name, rows: null, error: '', month: '', start: '', end: '', status: '' };
+      const item = { name: file.name, text: '', rows: null, error: '', month: '', start: '', end: '', status: '', sheet: '' };
       try {
-        item.rows = parseRealityCsv(decode(await file.arrayBuffer()));
+        item.text = decode(await file.arrayBuffer());
+        item.rows = parseRealityCsv(item.text);
         if (!item.rows.length) throw new Error('データ行がありません');
         const m = file.name.match(/(\d{8})\D+(\d{8})/);
         if (m) { item.start = fmtDate(parseDate(m[1])); item.end = fmtDate(parseDate(m[2])); item.month = ymOf(m[1]); }
@@ -797,6 +800,7 @@ button { cursor: pointer; }
         else if (ex) parts.push(el('div', { class: 'info', text: monthLabel(it.month) + 'のデータ（' + (ex.periodEnd ? ex.periodEnd + 'まで' : '取込済み') + '）を置き換えます' }));
         if (!it.month) parts.push(el('div', { class: 'err', text: '対象月を選んでください' }));
         if (it.status) parts.push(el('div', { class: it.status.startsWith('取り込みました') ? 'ok' : 'err', text: it.status }));
+        if (it.sheet) parts.push(el('div', { class: it.sheetOk ? 'info' : 'warn', text: it.sheet }));
       }
       parts.push(el('div', { class: 'dialog-actions' }, [el('button', { class: 'btn', type: 'button', text: '外す', onclick: () => { state.pending.splice(i, 1); renderPending(); } })]));
       return el('div', { class: 'file' }, parts);
@@ -818,9 +822,39 @@ button { cursor: pointer; }
           month: it.month, rows: it.rows, fileName: it.name, periodStart: it.start || '', periodEnd: it.end || '', importedAt: new Date().toISOString(),
         });
         it.status = '取り込みました（' + monthLabel(it.month) + '・' + it.rows.length + '人）';
+        renderPending();
+        await sendToSheet(it);
       } catch (e) {
         it.status = e && e.code === 'invalid_argument' ? 'この共有設定では取り込めません（閲覧のみ）' : e && e.code === 'quota_exceeded' ? '保存容量の上限です。古い月を整理してください' : '取り込めませんでした：' + (e && e.message ? e.message : e);
       }
+    }
+    renderPending();
+  }
+
+  // ===== スプレッドシート連携 =====
+  // 取り込んだCSVをドライブの連携フォルダに置く。スプレッドシートの Apps Script が15分ごとに拾って取り込む
+  async function sendToSheet(it) {
+    if (!state.sync.folderId) return;
+    if (!state.mcp) { it.sheet = 'スプレッドシートへは送れませんでした（この画面ではGoogleドライブに接続できません）'; it.sheetOk = false; return; }
+    const pad = (n) => String(n).padStart(2, '0');
+    const y = Math.floor(it.month / 100), m = it.month % 100;
+    let start = it.start, end = it.end;
+    if (!start || ymOf(start) !== it.month) { start = y + '/' + pad(m) + '/01'; end = y + '/' + pad(m) + '/' + pad(new Date(y, m, 0).getDate()); }
+    const title = 'streamer_' + start.replace(/\//g, '') + '_' + end.replace(/\//g, '') + '.csv';
+    it.sheet = 'スプレッドシートへ送信中…'; it.sheetOk = true; renderPending();
+    try {
+      await state.mcp.callTool('Google Drive', 'create_file', {
+        title, parentId: state.sync.folderId, textContent: it.text, contentMimeType: 'text/csv', disableConversionToGoogleType: true,
+      });
+      it.sheet = 'スプレッドシートへ送りました（15分以内に自動で反映されます）'; it.sheetOk = true;
+    } catch (e) {
+      const code = e && e.code;
+      it.sheetOk = false;
+      it.sheet = code === 'server_not_connected' ? 'スプレッドシートへ送れませんでした：claude.ai の「設定 → コネクタ」で Google Drive を追加してください'
+        : code === 'needs_reauth' ? 'スプレッドシートへ送れませんでした：claude.ai の「設定 → コネクタ」で Google Drive をつなぎ直してください'
+        : code === 'not_in_manifest' || code === 'approval_required' ? 'スプレッドシートへ送れませんでした：Google Drive の利用を許可してください（もう一度取り込むと確認が出ます）'
+        : code === 'tool_error' ? 'スプレッドシートへ送れませんでした：連携フォルダに書き込めません（フォルダの共有を確認してください）'
+        : 'スプレッドシートへ送れたか確認できませんでした。スプレッドシートの取込ログを確認してください';
     }
     renderPending();
   }
@@ -830,6 +864,7 @@ button { cursor: pointer; }
     const c = state.criteria;
     $('c-hours').value = c.hours; $('c-events').value = c.events; $('c-t1').value = c.t1; $('c-t2').value = c.t2; $('c-t3').value = c.t3;
     $('c-rate').value = Math.round(c.rate * 100); $('c-rescue').checked = !!c.rescue; $('cr-msg').textContent = '';
+    $('c-folder').value = state.sync.folderId || '';
     $('cr-save').disabled = !state.db || state.canWrite === false;
     $('criteria-modal').hidden = false;
   }
@@ -838,7 +873,12 @@ button { cursor: pointer; }
     const body = { hours: num($('c-hours').value), events: num($('c-events').value), t1: num($('c-t1').value), t2: num($('c-t2').value),
       t3: num($('c-t3').value), rate: num($('c-rate').value) / 100, rescue: $('c-rescue').checked, updatedAt: new Date().toISOString() };
     const msg = $('cr-msg');
-    try { await state.db.doc('settings/criteria').set(body); msg.style.color = ''; msg.textContent = '保存しました'; }
+    const folderId = $('c-folder').value.trim().replace(/^.*folders\//, '').replace(/[?#].*$/, '');
+    try {
+      await state.db.doc('settings/criteria').set(body);
+      if (folderId !== (state.sync.folderId || '')) await state.db.doc('settings/sync').set({ folderId, updatedAt: new Date().toISOString() });
+      msg.style.color = ''; msg.textContent = '保存しました';
+    }
     catch (err) { msg.style.color = 'var(--down)'; msg.textContent = err && err.code === 'invalid_argument' ? 'この共有設定では変更できません' : '保存できませんでした'; }
   }
 
@@ -909,8 +949,8 @@ button { cursor: pointer; }
       render();
       return;
     }
-    const [db, user, downloads] = await Promise.all([claude.use('db'), claude.use('user'), claude.use('downloads')]);
-    state.db = db; state.user = user; state.downloads = downloads;
+    const [db, user, downloads, mcp] = await Promise.all([claude.use('db'), claude.use('user'), claude.use('downloads'), claude.use('mcp')]);
+    state.db = db; state.user = user; state.downloads = downloads; state.mcp = mcp;
     if (user) { try { state.canWrite = await user.can('data.write'); } catch (e) { state.canWrite = null; } }
     if (!db) {
       state.loaded = true;
@@ -932,6 +972,9 @@ button { cursor: pointer; }
     db.doc('settings/criteria').onSnapshot((snap) => {
       state.criteria = Object.assign({}, DEFAULT_CRITERIA, snap.exists ? snap.data() : {});
       render();
+    }, onErr);
+    db.doc('settings/sync').onSnapshot((snap) => {
+      state.sync = Object.assign({ folderId: '' }, snap.exists ? snap.data() : {});
     }, onErr);
     db.collection('talents').onSnapshot((snap) => {
       const next = {};

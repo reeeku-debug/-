@@ -3,7 +3,7 @@
 // スプレッドシート「REALITY_ティア判定_週次KPI」に貼り付けて使う Apps Script です。
 //
 //   ① 毎日：REALITY の CSV（月初からの累計）を取り込む
-//        - Googleドライブの取込フォルダから自動（毎日10時）
+//        - ティア判定アプリで取り込むと、アプリがドライブのフォルダにCSVを置き、15分ごとに自動で取込
 //        - または メニュー「REALITY取込 → CSVをアップロードして取込」から手動
 //   ② 日次RAW に前回CSVとの差分（増分）を記録、月次RAW のその月を最新の累計で上書き
 //   ③ タレントマスタに新しいタレントを追加、ティア判定の一覧を最新月の在籍者に更新
@@ -15,11 +15,14 @@
 
 // ===== 設定（ここだけ書き換える） ==========================================
 
-/** CSVを入れるGoogleドライブのフォルダID（URLの folders/ の後ろ） */
-const FOLDER_ID = 'ここにフォルダID';
+/**
+ * CSVが届くGoogleドライブのフォルダID（URLの folders/ の後ろ）。
+ * ティア判定アプリでCSVを取り込むと、アプリがこのフォルダにCSVを置き、ここから自動で取り込まれる。
+ */
+const FOLDER_ID = '1XUUQopVjWOikkU2_QS9glZZN7NhzLQIc';
 
-/** 自動取込を実行する時刻（時） */
-const DAILY_HOUR = 10;
+/** フォルダを見に行く間隔（分）。1・5・10・15・30 のどれか */
+const CHECK_MINUTES = 15;
 
 /**
  * CSVの列名の候補。REALITYのCSVの列名が変わったら、ここに列名を追加してください。
@@ -88,7 +91,7 @@ function onOpen() {
     .addItem('月別ティアを更新', 'refreshMonthlyView')
     .addItem('ティア推移を再計算', 'refreshTierHistory')
     .addSeparator()
-    .addItem('自動取込（毎日' + DAILY_HOUR + '時）を設定', 'setupTrigger')
+    .addItem('自動取込（' + CHECK_MINUTES + '分ごと）を設定', 'setupTrigger')
     .addToUi();
 }
 
@@ -100,14 +103,16 @@ function onEdit(e) {
   renderMonthlyView_(e.source, parseMonthLabel_(e.range.getValue()));
 }
 
-/** 毎日 DAILY_HOUR 時に dailyImport を実行するトリガーを登録（重複登録はしない） */
+/** CHECK_MINUTES 分ごとに dailyImport を実行するトリガーを登録（重複登録はしない） */
 function setupTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'dailyImport') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('dailyImport').timeBased().atHour(DAILY_HOUR).everyDays(1).inTimezone(TZ).create();
-  const fixed = fixJudgeFormulas_(SpreadsheetApp.getActiveSpreadsheet());
-  notify_('毎日' + DAILY_HOUR + '時の自動取込を設定しました。' + (fixed ? 'ティア判定の数式（11・12月デビューの3ヶ月目）も修正しました。' : ''));
+  ScriptApp.newTrigger('dailyImport').timeBased().everyMinutes(CHECK_MINUTES).create();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const fixed = fixJudgeFormulas_(ss);
+  notify_(CHECK_MINUTES + '分ごとの自動取込を設定しました。' + (fixed ? 'ティア判定の数式（11・12月デビューの3ヶ月目）も修正しました。' : ''));
+  dailyImport(); // すでにフォルダにあるCSVをすぐ取り込む
 }
 
 /**
