@@ -30,10 +30,10 @@ const COLUMN_ALIASES = {
   name: ['配信者名', 'ユーザー名', '名前', 'ニックネーム', '表示名', 'name'],
   rank: ['REALITYランク', 'ランク', 'rank'],
   count: ['配信回数', '合計配信回数'],
-  hours: ['配信時間（h）', '配信時間(h)', '合計配信時間', '配信時間'],
+  hours: ['合計配信時間（時）', '合計配信時間（h）', '配信時間（時）', '配信時間（h）', '合計配信時間', '配信時間'],
   viewers: ['視聴者数', '合計視聴者数', 'ユニーク視聴者数'],
   gift: ['合計ギフト金額', 'ギフト金額（円）', 'ギフト金額', '合計ギフト'],
-  score: ['スコア', '合計スコア'],
+  score: ['合計獲得スコア', '獲得スコア', 'スコア', '合計スコア'],
   events: ['参加中のイベント', 'イベント参加数', 'イベント数'],
   debut: ['初配信日', 'デビュー日'],
 };
@@ -948,11 +948,15 @@ function findColumns_(headerRow) {
   const out = {};
   Object.keys(COLUMN_ALIASES).forEach(function (k) {
     out[k] = -1;
-    COLUMN_ALIASES[k].some(function (alias) {
-      const i = norm.indexOf(normHeader_(alias));
-      if (i >= 0) out[k] = i;
-      return i >= 0;
-    });
+    const aliases = COLUMN_ALIASES[k].map(normHeader_);
+    // 完全一致 → 「列名（単位）」のように後ろに括弧が付いた列 の順で探す
+    aliases.some(function (a) { out[k] = norm.indexOf(a); return out[k] >= 0; });
+    if (out[k] < 0) {
+      aliases.some(function (a) {
+        out[k] = norm.findIndex(function (h) { return h.indexOf(a + '(') === 0; });
+        return out[k] >= 0;
+      });
+    }
   });
   return out;
 }

@@ -293,3 +293,21 @@ test('アプリの書き出しCSVで月次RAWの各月を置き換え、担当�
   assert.deepEqual(master.map((l) => [l[0], l[1], l[2]]), [['m', 'みるね新名', '井上'], ['t', 'たね', '渡邊']]);
   assert.deepEqual(ss.sheets['ティア判定'].cells.slice(4).map((l) => l[0]).filter(Boolean), ['m']);
 });
+
+test('実際のREALITY配信レポートCSVの列名を読み取れる', () => {
+  const ctx = load();
+  const csv = '配信者名,ID,ランク,合計配信回数,合計配信時間（時）,合計視聴者数,合計被視聴時間（時）,合計ギフト金額,合計獲得スコア,参加中のイベント,初配信日,デビュー条件,トップ到達,今月のスコアボーナス金額\n' +
+    'みるね,a1,A,12,30.5,100,200.5,"166,595.89",9999,"夏祭り\n秋イベ",2025/06/14,済,,0\n';
+  const recs = run(ctx, 'parseRealityCsv_(csv)', { csv });
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].id, 'a1');
+  assert.equal(recs[0].name, 'みるね');
+  assert.equal(recs[0].rank, 'A');
+  assert.equal(recs[0].count, 12);
+  assert.equal(recs[0].hours, 30.5);
+  assert.equal(recs[0].viewers, 100);
+  assert.equal(recs[0].gift, 166595.89);
+  assert.equal(recs[0].score, 9999);
+  assert.equal(recs[0].events, 2);
+  assert.equal(recs[0].debut, '2025/06/14');
+});
