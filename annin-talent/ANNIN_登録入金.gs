@@ -9,6 +9,7 @@
 //      ANNIN No. は3シートの最大の番号＋1を自動で振る（手入力した番号が使用済みなら登録しない）
 //   ② 入金チェック：ANNIN No. か名前（カナも可）で探して、その月の［受］にチェックを付ける
 //        - ANNIN No. をまとめて貼り付けて一括チェックもできる
+//   ③ 入金ダッシュボード：今月（または選んだ月）の入金数・未入金数・入金率・事務所別・未入金者一覧・月別推移
 //
 // 数式が入っている列（入金月数・最終入金月・ステータスなど）は、1つ上の行の数式をそのまま引き継ぐ。
 // セットアップ手順は同じフォルダの README.md を参照してください。
@@ -62,6 +63,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('ANNIN管理')
     .addItem('登録・入金アプリを開く', 'openAppDialog')
+    .addItem('入金ダッシュボードを作成・更新', 'buildPaymentDashboard')
     .addToUi();
 }
 
@@ -130,6 +132,7 @@ function registerTalent(form) {
       no: no, fullName: fullName, zip: f.zip, address: f.address, phone: f.phone,
       bankName: f.bankName, branch: f.branch, accountType: f.accountType, holder: f.holder, accountNo: f.accountNo,
     });
+    ensureCalcRows_(ss);
     SpreadsheetApp.flush();
     return { ok: true, no: no, fullName: fullName, nextNo: nextAnninNo_(ss) };
   });
@@ -446,6 +449,212 @@ function cleanForm_(form) {
   f.lastKana = toKatakana_(f.lastKana);
   f.firstKana = toKatakana_(f.firstKana);
   return f;
+}
+
+// ===== 入金ダッシュボード ===================================================
+//
+// メニュー「ANNIN管理 → 入金ダッシュボードを作成・更新」で、次の2シートを作る（何度実行しても安全）。
+//   - 01_入金ダッシュボード … 対象月（空欄なら今月）の入金数・未入金数・入金率・事務所別・未入金者一覧・月別推移
+//   - _入金集計（非表示）   … ダッシュボードの計算用。20_受領管理・10_タレント台帳を数式で参照する
+// 中身はすべて数式なので、アプリやシートでチェックを付けるとすぐに反映される。
+
+const DASH = {
+  sheet: '01_入金ダッシュボード',
+  calc: '_入金集計',
+  fee: 30000, // 月謝の初期値（ダッシュボードのB5で変更できる）
+};
+
+function buildPaymentDashboard() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  withLock_(function () { buildPaymentDashboard_(ss); });
+  ss.setActiveSheet(ss.getSheetByName(DASH.sheet));
+  try { ss.toast('入金ダッシュボードを作成しました', 'ANNIN管理', 5); } catch (e) { /* toast は画面がないときは使えない */ }
+}
+
+function buildPaymentDashboard_(ss) {
+  const paySheet = sheet_(ss, SHEET.payment);
+  const pay = readTable_(paySheet);
+  const ledger = readTable_(sheet_(ss, SHEET.ledger));
+  ['start', 'office', 'fullName'].forEach(function (k) {
+    if (pay.col[k] === undefined) throw new Error('20_受領管理 に「' + COLS[k][0] + '」の列が見つかりません');
+  });
+  if (!monthColumns_(pay).length) throw new Error('20_受領管理 に月の列（YYYY/MM）が見つかりません');
+
+  // ---- 計算用シート ----
+  const R = "'" + SHEET.payment + "'!";
+  const L = "'" + SHEET.ledger + "'!";
+  const first = pay.headerRow + 1;
+  const lastLetter = colLetter_(pay.headers.length);
+  const rng = function (key) { const c = colLetter_(pay.col[key] + 1); return R + c + first + ':' + c; };
+  const noR = R + 'A' + first + ':A';
+  const ifRow = function (expr) { return '=ARRAYFORMULA(IF(' + noR + '="",,' + expr + '))'; };
+  const ymText = function (r) { return 'IF(ISNUMBER(' + r + '),TEXT(' + r + ',"yyyy/mm"),TRIM(TO_TEXT(' + r + ')))'; };
+  const hdr = R + 'A' + pay.headerRow + ':' + lastLetter + pay.headerRow;
+  const hdrNorm = 'ARRAYFORMULA(' + ymText(hdr) + ')';
+  const body = R + 'A' + first + ':' + lastLetter;
+  const cancel = ledger.col.cancel === undefined ? 'FALSE'
+    : 'IFERROR(VLOOKUP(' + noR + ',' + L + 'A' + (ledger.headerRow + 1) + ':' + colLetter_(ledger.headers.length) + ',' + (ledger.col.cancel + 1) + ',FALSE)=TRUE,FALSE)';
+  const D = "'" + DASH.sheet + "'!";
+
+  // 2つのシートを先に用意する（お互いを数式で参照するため）
+  let sh = ss.getSheetByName(DASH.sheet);
+  const isNew = !sh;
+  if (isNew) sh = ss.insertSheet(DASH.sheet, 1);
+  let calc = ss.getSheetByName(DASH.calc);
+  if (!calc) calc = ss.insertSheet(DASH.calc);
+  calc.clear();
+  const needRows = paySheet.getMaxRows() + 1000;
+  if (calc.getMaxRows() < needRows) calc.insertRowsAfter(calc.getMaxRows(), needRows - calc.getMaxRows());
+  calc.getRange(1, 1, 1, 10).setValues([['ANNIN No.', '姓名', '所属事務所', '開始年月', '入金月数', '最終入金月', '開始(数値)', '解約', '対象月入金', '前月入金']]);
+  calc.getRange(2, 1, 1, 10).setFormulas([[
+    ifRow(noR),
+    ifRow(rng('fullName')),
+    ifRow(rng('office')),
+    ifRow(ymText(rng('start'))),
+    pay.col.paidCount === undefined ? '' : ifRow(rng('paidCount')),
+    pay.col.lastPaid === undefined ? '' : ifRow('IF(' + rng('lastPaid') + '="","",' + ymText(rng('lastPaid')) + ')'),
+    ifRow('IFERROR(VALUE(SUBSTITUTE(' + ymText(rng('start')) + ',"/","")),0)'),
+    ifRow(cancel),
+    ifRow('IF($M$5=0,FALSE,INDEX(' + body + ',0,MAX(1,$M$5))=TRUE)'),
+    ifRow('IF($M$6=0,FALSE,INDEX(' + body + ',0,MAX(1,$M$6))=TRUE)'),
+  ]]);
+  calc.getRange('L1:M6').setValues([
+    ['対象月', ''], ['対象月(数値)', ''], ['前月', ''], ['前月(数値)', ''], ['対象月の列番号', ''], ['前月の列番号', ''],
+  ]);
+  calc.getRange('M1:M6').setFormulas([
+    ['=' + D + 'B4'],
+    ['=VALUE(SUBSTITUTE(M1,"/",""))'],
+    ['=TEXT(EDATE(DATE(LEFT(M1,4),RIGHT(M1,2),1),-1),"yyyy/mm")'],
+    ['=VALUE(SUBSTITUTE(M3,"/",""))'],
+    ['=IFERROR(MATCH(M1,' + hdrNorm + ',0),0)'],
+    ['=IFERROR(MATCH(M3,' + hdrNorm + ',0),0)'],
+  ]);
+  calc.hideSheet();
+
+  // ---- ダッシュボード ----
+  let keepMonth = '';
+  let keepFee = DASH.fee;
+  if (!isNew) {
+    keepMonth = sh.getRange('B3').getDisplayValue();
+    const f = Number(sh.getRange('B5').getValue());
+    if (f > 0) keepFee = f;
+    sh.getCharts().forEach(function (c) { sh.removeChart(c); });
+    sh.clear();
+    sh.getRange('B3').clearDataValidations();
+  }
+  const C = "'" + DASH.calc + "'!";
+  const col = function (letter) { return C + letter + '2:' + letter; };
+  const target = 'COUNTIFS(' + col('A') + ',"<>",' + col('H') + ',FALSE,' + col('G') + ',"<="&' + C + '$M$2';
+  const rate = function (paid, all) { return '=IF(' + all + '=0,"-",' + paid + '/' + all + ')'; };
+
+  sh.getRange('A1').setValue('入金ダッシュボード').setFontSize(16).setFontWeight('bold');
+  sh.getRange('A3:C5').setValues([
+    ['対象月（空欄＝今月）', '', '← プルダウンで過去の月も選べます。空欄にすると毎月自動で今月になります'],
+    ['表示中の月', '', ''],
+    ['月謝（円）', keepFee, '入金額の計算に使います'],
+  ]);
+  sh.getRange('B3').setNumberFormat('@').setValue(keepMonth).setBackground('#fff2cc');
+  sh.getRange('B3').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(monthColumns_(pay).map(function (m) { return m.ym; }).reverse(), true).setAllowInvalid(true).build());
+  sh.getRange('B4').setFormula('=IF(B3="",TEXT(TODAY(),"yyyy/mm"),IF(ISNUMBER(B3),TEXT(B3,"yyyy/mm"),TRIM(B3)))').setFontWeight('bold');
+  sh.getRange('C4').setFormula('=IF(' + C + 'M5=0,"⚠ 20_受領管理にこの月の列がありません","")').setFontColor('#b42318');
+  sh.getRange('B5').setBackground('#fff2cc').setNumberFormat('#,##0');
+
+  sh.getRange('A7').setValue('■ サマリー').setFontWeight('bold');
+  const summary = [
+    ['入金対象（在籍・開始済み）', '=' + target + ')', '解約しておらず、開始月が来ている人'],
+    ['入金済み', '=COUNTIF(' + col('I') + ',TRUE)', '対象月に［受］チェックがある人'],
+    ['未入金', '=' + target + ',' + col('I') + ',FALSE)', '入金対象のうちチェックがない人（右の一覧）'],
+    ['入金率', rate(target + ',' + col('I') + ',TRUE)', target + ')'), '入金対象のうち入金済みの割合'],
+    ['入金額（円）', '=B9*B5', '入金済み × 月謝'],
+    ['前月の入金済み', '=COUNTIF(' + col('J') + ',TRUE)', ''],
+    ['前月比', '=B9-B13', ''],
+    ['今月から開始（新規）', '=COUNTIFS(' + col('A') + ',"<>",' + col('H') + ',FALSE,' + col('G') + ',' + C + '$M$2)', '開始月が対象月の人'],
+    ['在籍数（解約除く）', '=COUNTIFS(' + col('A') + ',"<>",' + col('H') + ',FALSE)', ''],
+  ];
+  sh.getRange(8, 1, summary.length, 3).setValues(summary.map(function (r) { return [r[0], '', r[2]]; }));
+  sh.getRange(8, 2, summary.length, 1).setFormulas(summary.map(function (r) { return [r[1]]; }));
+  sh.getRange('B8:B16').setNumberFormat('#,##0').setFontWeight('bold').setFontSize(12);
+  sh.getRange('B11').setNumberFormat('0.0%');
+  sh.getRange('B12').setNumberFormat('#,##0"円"');
+  sh.getRange('B14').setNumberFormat('+#,##0;-#,##0;0');
+  sh.getRange('B10').setFontColor('#b42318');
+  sh.getRange('C8:C16').setFontColor('#656d76');
+
+  sh.getRange('A18').setValue('■ 事務所別').setFontWeight('bold');
+  sh.getRange('A19:E19').setValues([['所属', '入金対象', '入金済み', '未入金', '入金率']]).setFontWeight('bold').setBackground('#eef3fe');
+  const officeRow = function (r, name) {
+    const o = name ? ',' + col('C') + ',"' + name + '"' : '';
+    return [
+      '=' + target + o + ')',
+      '=COUNTIFS(' + col('A') + ',"<>",' + col('I') + ',TRUE' + o + ')',
+      '=' + target + o + ',' + col('I') + ',FALSE)',
+      '=IF(B' + r + '=0,"-",COUNTIFS(' + col('A') + ',"<>",' + col('H') + ',FALSE,' + col('G') + ',"<="&' + C + '$M$2,' + col('I') + ',TRUE' + o + ')/B' + r + ')',
+    ];
+  };
+  const offices = OFFICES.concat(['']);
+  sh.getRange(20, 1, offices.length, 1).setValues(offices.map(function (o) { return [o || '合計']; }));
+  sh.getRange(20, 2, offices.length, 4).setFormulas(offices.map(function (o, i) { return officeRow(20 + i, o); }));
+  sh.getRange(20, 2, offices.length, 3).setNumberFormat('#,##0');
+  sh.getRange(20, 5, offices.length, 1).setNumberFormat('0.0%');
+  sh.getRange(19 + offices.length, 1, 1, 5).setFontWeight('bold');
+
+  const tStart = 21 + offices.length + 1;
+  sh.getRange(tStart, 1).setValue('■ 月別の入金済み数（直近12ヶ月）').setFontWeight('bold');
+  sh.getRange(tStart + 1, 1, 1, 3).setValues([['年月', '入金済み', '前月差']]).setFontWeight('bold').setBackground('#eef3fe');
+  const trend = [];
+  for (let i = 0; i < 12; i++) {
+    const r = tStart + 2 + i;
+    trend.push([
+      '=TEXT(EDATE(DATE(LEFT($B$4,4),RIGHT($B$4,2),1),' + (i - 11) + '),"yyyy/mm")',
+      '=IFERROR(COUNTIF(INDEX(' + body + ',0,MATCH(A' + r + ',' + hdrNorm + ',0)),TRUE),"")',
+      i === 0 ? '' : '=IF(OR(B' + r + '="",B' + (r - 1) + '=""),"",B' + r + '-B' + (r - 1) + ')',
+    ]);
+  }
+  sh.getRange(tStart + 2, 1, 12, 3).setFormulas(trend);
+  sh.getRange(tStart + 2, 2, 12, 2).setNumberFormat('#,##0');
+  sh.insertChart(sh.newChart()
+    .setChartType(Charts.ChartType.COLUMN)
+    .addRange(sh.getRange(tStart + 1, 1, 13, 2))
+    .setNumHeaders(1)
+    .setPosition(tStart + 15, 1, 0, 0)
+    .setOption('title', '月別の入金済み数')
+    .setOption('legend.position', 'none')
+    .setOption('colors', ['#2563eb'])
+    .setOption('width', 560)
+    .setOption('height', 280)
+    .build());
+
+  sh.getRange('G7').setFormula('="■ 未入金者一覧（"&B10&"人）"').setFontWeight('bold');
+  sh.getRange('G8:L8').setValues([['ANNIN No.', '姓名', '所属', '開始年月', '入金月数', '最終入金月']]).setFontWeight('bold').setBackground('#fdecea');
+  sh.getRange('G9').setFormula('=IFERROR(SORT(FILTER(' + C + 'A2:F,' + col('A') + '<>"",' + col('H') + '=FALSE,' + col('G') + '<=' + C + '$M$2,' + col('I') + '=FALSE),1,TRUE),"未入金者はいません")');
+
+  sh.setColumnWidth(1, 200);
+  sh.setColumnWidth(2, 110);
+  sh.setColumnWidth(3, 300);
+  sh.setColumnWidths(4, 3, 80);
+  sh.setColumnWidth(6, 24);
+  sh.setColumnWidths(7, 6, 95);
+  sh.setFrozenRows(4);
+}
+
+/** 1 → A、27 → AA */
+function colLetter_(n) {
+  let s = '';
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+/** 受領管理に行が増えたとき、計算用シートの行が足りなくならないようにする */
+function ensureCalcRows_(ss) {
+  const calc = ss.getSheetByName(DASH.calc);
+  if (!calc) return;
+  const need = sheet_(ss, SHEET.payment).getMaxRows() + 100;
+  if (calc.getMaxRows() < need) calc.insertRowsAfter(calc.getMaxRows(), need - calc.getMaxRows() + 900);
 }
 
 // ===== 小さな関数 ==========================================================

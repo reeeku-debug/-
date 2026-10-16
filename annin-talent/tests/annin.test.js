@@ -202,3 +202,121 @@ test('年月の表記ゆれ', () => {
   assert.equal(ctx.normYm_(new Date(2026, 9, 1)), '2026/10');
   assert.equal(ctx.normYm_('開始年月'), '');
 });
+
+// ---- 入金ダッシュボード ----
+// 数式の計算はできないので、作成が最後まで通ること・数式の括弧と引用符の対応・参照先の列を確認する。
+function chain(target) {
+  return new Proxy(target, {
+    get(t, k) {
+      if (k in t) return t[k];
+      return () => chain(t);
+    },
+  });
+}
+function a1(ref) {
+  const m = ref.match(/^([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$/);
+  const n = (s) => [...s].reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0);
+  const c1 = n(m[1]);
+  const r1 = Number(m[2]);
+  return [r1, c1, (m[4] ? Number(m[4]) : r1) - r1 + 1, (m[3] ? n(m[3]) : c1) - c1 + 1];
+}
+function withDashboardSupport(ss) {
+  const patch = (sh) => {
+    const orig = sh.getRange.bind(sh);
+    sh.getRange = (r, c, nr, nc) => {
+      const range = typeof r === 'string' ? orig(...a1(r)) : orig(r, c, nr, nc);
+      range.setFormula = (f) => { sh.formulasA1[`${range.row},${range.col}`] = f; return chain(range); };
+      range.setFormulas = (fs) => {
+        fs.forEach((line, i) => line.forEach((f, j) => { if (f) sh.formulasA1[`${range.row + i},${range.col + j}`] = f; }));
+        return chain(range);
+      };
+      range.getDisplayValue = () => String(range.getValue());
+      return chain(range);
+    };
+    sh.formulasA1 = {};
+    sh.charts = [];
+    sh.clear = () => { sh.cells = []; sh.formulasA1 = {}; };
+    sh.hideSheet = () => { sh.hidden = true; };
+    sh.getCharts = () => sh.charts;
+    sh.removeChart = (c) => { sh.charts = sh.charts.filter((x) => x !== c); };
+    sh.insertChart = (c) => sh.charts.push(c);
+    sh.newChart = () => chain({ build: () => ({}) });
+    sh.setColumnWidth = sh.setColumnWidths = sh.setFrozenRows = () => {};
+    return sh;
+  };
+  Object.values(ss.sheets).forEach(patch);
+  ss.order = Object.keys(ss.sheets);
+  ss.insertSheet = (name, index) => {
+    const sh = patch(new FakeSheet(name, []));
+    ss.sheets[name] = sh;
+    ss.order.splice(index === undefined ? ss.order.length : index, 0, name);
+    return sh;
+  };
+  ss.setActiveSheet = () => {};
+  ss.toast = () => {};
+  return ss;
+}
+function loadWithDashboard(ss) {
+  const ctx = load(ss);
+  ctx.SpreadsheetApp.newDataValidation = () => chain({});
+  ctx.Charts = { ChartType: { COLUMN: 'column' } };
+  return ctx;
+}
+function checkFormula(f) {
+  let depth = 0;
+  let inStr = false;
+  let inSheet = false;
+  for (const ch of f) {
+    if (ch === '"' && !inSheet) inStr = !inStr;
+    else if (ch === "'" && !inStr) inSheet = !inSheet;
+    else if (!inStr && !inSheet) {
+      if (ch === '(') depth++;
+      if (ch === ')') depth--;
+      assert.ok(depth >= 0, '閉じ括弧が多い: ' + f);
+    }
+  }
+  assert.equal(depth, 0, '括弧の数が合わない: ' + f);
+  assert.ok(!inStr && !inSheet, '引用符が閉じていない: ' + f);
+}
+
+test('入金ダッシュボードを作成できる（数式の括弧・参照先）', () => {
+  const ss = withDashboardSupport(makeSpreadsheet());
+  const ctx = loadWithDashboard(ss);
+  ctx.buildPaymentDashboard();
+  const dash = ss.sheets['01_入金ダッシュボード'];
+  const calc = ss.sheets['_入金集計'];
+  assert.equal(ss.order[1], '01_入金ダッシュボード');
+  assert.equal(calc.hidden, true);
+  assert.equal(dash.charts.length, 1);
+
+  const all = { ...dash.formulasA1, ...calc.formulasA1 };
+  assert.ok(Object.keys(all).length > 40);
+  Object.values(all).forEach(checkFormula);
+
+  // 計算用：受領管理の列（開始年月=D、入金月数=H、最終入金月=I）と台帳の解約列（12列目）を参照する
+  assert.match(calc.formulasA1['2,4'], /'20_受領管理'!D2:D/);
+  assert.match(calc.formulasA1['2,5'], /'20_受領管理'!H2:H/);
+  assert.match(calc.formulasA1['2,8'], /VLOOKUP\('20_受領管理'!A2:A,'10_タレント台帳'!A2:N,12,FALSE\)/);
+  assert.match(calc.formulasA1['2,9'], /INDEX\('20_受領管理'!A2:J,0,MAX\(1,\$M\$5\)\)/);
+  assert.match(calc.formulasA1['5,13'], /MATCH\(M1,ARRAYFORMULA\(.*'20_受領管理'!A1:J1/);
+  assert.equal(calc.formulasA1['1,13'], "='01_入金ダッシュボード'!B4");
+  // ダッシュボード：未入金者一覧と事務所別
+  assert.match(dash.formulasA1['9,7'], /^=IFERROR\(SORT\(FILTER\('_入金集計'!A2:F,/);
+  assert.match(dash.formulasA1['20,2'], /"東京"/);
+  assert.match(dash.formulasA1['21,2'], /"大阪"/);
+
+  // 2回目：対象月と月謝は残し、グラフは作り直す
+  dash.cells[2][1] = '2026/09';
+  dash.cells[4][1] = 25000;
+  ctx.buildPaymentDashboard();
+  assert.equal(dash.cells[2][1], '2026/09');
+  assert.equal(dash.cells[4][1], 25000);
+  assert.equal(dash.charts.length, 1);
+});
+
+test('列番号の文字変換', () => {
+  const ctx = load(makeSpreadsheet());
+  assert.equal(ctx.colLetter_(1), 'A');
+  assert.equal(ctx.colLetter_(26), 'Z');
+  assert.equal(ctx.colLetter_(39), 'AM');
+});
