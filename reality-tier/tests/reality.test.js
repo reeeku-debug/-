@@ -345,3 +345,15 @@ test('doPost：合言葉の確認・データ読み込み・担当者の保存�
   assert.deepEqual(after.periods, { 202610: '2026/10/15' });
   assert.equal(after.log[0][4].startsWith('OK'), true);
 });
+
+test('doGet：アプリの画面を返す（?ping=1 なら動作確認のJSON）', () => {
+  const ctx = load();
+  let shown = null;
+  const out = { setTitle() { return out; }, addMetaTag() { return out; } };
+  ctx.HtmlService = { createHtmlOutput: (html) => ((shown = html), out) };
+  ctx.ContentService = { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ text: t, setMimeType() { return this; } }) };
+  run(ctx, 'doGet({ parameter: {} })');
+  assert.match(shown, /ライバーTier判定/);
+  assert.match(shown, /google\.script\.run/);
+  assert.equal(JSON.parse(run(ctx, 'doGet({ parameter: { ping: "1" } }).text')).ok, true);
+});
