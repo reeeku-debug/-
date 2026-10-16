@@ -453,13 +453,18 @@ function importCsv_(ss, text, fileName, fileId, periodOverride) {
     // 同じ月で取込済みの最新期間と比べて、重複・古いCSVを弾く
     const daily = ss.getSheetByName(SHEET.daily);
     const prev = latestDailySnapshot_(daily, monthKey);
-    if (prev.end && ymd_(period.end) <= ymd_(prev.end)) {
-      const msg =
-        ymd_(period.end) === ymd_(prev.end)
-          ? '新しいデータなし（重複）'
-          : 'スキップ：取込済み（' + fmtDate_(prev.end) + 'まで）より古い期間';
+    if (prev.end && ymd_(period.end) < ymd_(prev.end)) {
+      const msg = 'スキップ：取込済み（' + fmtDate_(prev.end) + 'まで）より古い期間';
       appendLog_(ss, fileId, fileName, targetDate, 0, msg);
       return { ok: false, message: msg };
+    }
+    if (prev.end && ymd_(period.end) === ymd_(prev.end)) {
+      // 同じ期間をもう一度入れたとき：日次RAW（増分）は二重にしないが、月次RAWは入れ直す（ボーナスなどの列を後から足せるように）
+      replaceMonthly_(ss, monthKey, records, fileName);
+      upsertMaster_(ss, records);
+      const msg = 'OK（同じ期間のため月次RAWだけ更新）';
+      appendLog_(ss, fileId, fileName, targetDate, records.length, msg);
+      return { ok: true, message: msg + '・' + records.length + '行' };
     }
 
     appendDaily_(daily, period, records, prev.byId, fileName);
@@ -984,14 +989,24 @@ function importFromManagementSheet() {
   const now = new Date();
   const bonusByMonth = {};
   src.getSheets().forEach(function (s) {
-    const m = s.getName().match(/^REALITY売上計算（[^）]*）\s*(\d{1,2})月(実績|結果)$/);
-    if (!m || s.getLastRow() < 16) return;
-    const month = Number(m[1]);
-    const key = (month > now.getMonth() + 1 ? now.getFullYear() - 1 : now.getFullYear()) * 100 + month;
+    const name = s.getName();
+    const m = name.match(/^REALITY売上計算（[^）]*）\s*(\d{1,2})月(実績|結果)$/);
+    // 「◯月実績」は過去の月、「REALITY売上計算（東京大阪MUSIC）」は今月（途中）
+    let key;
+    if (m) {
+      const month = Number(m[1]);
+      key = (month > now.getMonth() + 1 ? now.getFullYear() - 1 : now.getFullYear()) * 100 + month;
+    } else if (name === 'REALITY売上計算（東京大阪MUSIC）') {
+      key = ym_(now);
+    } else {
+      return;
+    }
+    if (s.getLastRow() < 14) return;
     const map = bonusByMonth[key] || (bonusByMonth[key] = {});
-    s.getRange(16, 3, s.getLastRow() - 15, 8).getValues().forEach(function (r) {
+    // 一覧の始まりの行がシートによって違うので、14行目から下で C列がIDの行を拾う
+    s.getRange(14, 3, s.getLastRow() - 13, 8).getValues().forEach(function (r) {
       const id = String(r[0]).trim();
-      if (id) map[id] = num_(r[7]); // C列＝ID、J列＝ボーナス売上
+      if (/^[0-9a-z]{20,}$/.test(id)) map[id] = num_(r[7]); // C列＝ID、J列＝ボーナス売上
     });
   });
   const monthly = ss.getSheetByName(SHEET.monthly);

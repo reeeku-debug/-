@@ -229,10 +229,10 @@ test('日次取込：増分の計算・重複防止・古い期間のスキッ�
   assert.equal(mRow[11], 17.4);
   assert.equal(Math.round(mRow[12] * 100) / 100, 166595.89);
 
-  // 3. 同じ期間をもう一度 → 重複
-  r = imp('streamer_20260801_20260807 (1).csv', [['m', 'みるね', 'A', 6, 30.5, 0, 266595.89, 20, 2, '']]);
-  assert.equal(r.ok, false);
-  assert.match(r.message, /重複/);
+  // 3. 同じ期間をもう一度 → 日次RAWは増えない（月次RAWだけ入れ直す）
+  r = imp('streamer_20260801_20260807 (1).csv', [['m', 'みるね', 'A', 6, 30.5, 0, 266595.89, 20, 2, ''], ['t', 'たね', 'B', 1, 2, 0, 500, 1, 0, '']]);
+  assert.equal(r.ok, true);
+  assert.match(r.message, /月次RAWだけ更新/);
   assert.equal(daily.getLastRow(), 5);
 
   // 古い期間 → スキップ（増分がマイナスにならない）
@@ -262,7 +262,7 @@ test('日次取込：増分の計算・重複防止・古い期間のスキッ�
   assert.deepEqual(keys, [202608, 202608, 202609, 202609]);
 
   const log = ss.sheets['取込ログ'].cells.slice(1).map((l) => l[5]);
-  assert.equal(log.filter((x) => String(x).startsWith('OK')).length, 4);
+  assert.equal(log.filter((x) => String(x).startsWith('OK')).length, 5);
 });
 
 test('期間が月をまたぐCSVはエラーとして記録される', () => {
@@ -388,4 +388,16 @@ test('CSVの「今月のスコアボーナス金額」を読み取る', () => {
   const ctx = load();
   const csv = '配信者名,ID,合計配信時間（時）,合計ギフト金額,今月のスコアボーナス金額\nみるね,a1,10,1000,20000\n';
   assert.equal(run(ctx, 'parseRealityCsv_(csv)', { csv })[0].bonus, 20000);
+});
+
+test('同じ期間のCSVを入れ直すと、月次RAWのボーナスが更新される', () => {
+  const ctx = load();
+  const ss = makeSpreadsheet();
+  const head = '配信者名,ID,合計配信時間（時）,合計ギフト金額,今月のスコアボーナス金額\n';
+  const imp = (text) => run(ctx, 'importCsv_(ss, text, "streamer_20261001_20261015.csv", "f", null)', { ss, text });
+  imp(head + 'みるね,m,10,1000,\n');
+  assert.equal(imp(head + 'みるね,m,10,1000,20000\n').ok, true);
+  const row = ss.sheets['月次RAW'].cells.find((l) => l && l[1] === 'm');
+  assert.equal(row[13], 20000);
+  assert.equal(ss.sheets['日次RAW'].getLastRow(), 2); // 日次RAWは1回分だけ
 });
