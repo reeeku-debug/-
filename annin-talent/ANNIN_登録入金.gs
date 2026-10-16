@@ -495,6 +495,13 @@ function buildPaymentDashboard_(ss) {
   const cancel = ledger.col.cancel === undefined ? 'FALSE'
     : 'IFERROR(VLOOKUP(' + noR + ',' + L + 'A' + (ledger.headerRow + 1) + ':' + colLetter_(ledger.headers.length) + ',' + (ledger.col.cancel + 1) + ',FALSE)=TRUE,FALSE)';
   const D = "'" + DASH.sheet + "'!";
+  // 最終入金月：シートの「最終入金月」列が空のことがあるので、月の列のチェックから直接求める（いちばん右の TRUE の月）
+  const months = monthColumns_(pay);
+  const mFirst = colLetter_(months[0].index + 1);
+  const mLast = colLetter_(months[months.length - 1].index + 1);
+  const mHdr = R + mFirst + pay.headerRow + ':' + mLast + pay.headerRow;
+  const lastPaidFormula = '=BYROW(' + R + mFirst + first + ':' + mLast + ',LAMBDA(r,IF(COUNTIF(r,TRUE)=0,"",'
+    + 'INDEX(ARRAYFORMULA(' + ymText(mHdr) + '),1,MAX(FILTER(SEQUENCE(1,COLUMNS(r)),r=TRUE))))))';
 
   // 2つのシートを先に用意する（お互いを数式で参照するため）
   let sh = ss.getSheetByName(DASH.sheet);
@@ -512,7 +519,7 @@ function buildPaymentDashboard_(ss) {
     ifRow(rng('office')),
     ifRow(ymText(rng('start'))),
     pay.col.paidCount === undefined ? '' : ifRow(rng('paidCount')),
-    pay.col.lastPaid === undefined ? '' : ifRow('IF(' + rng('lastPaid') + '="","",' + ymText(rng('lastPaid')) + ')'),
+    lastPaidFormula,
     ifRow('IFERROR(VALUE(SUBSTITUTE(' + ymText(rng('start')) + ',"/","")),0)'),
     ifRow(cancel),
     ifRow('IF($M$5=0,FALSE,INDEX(' + body + ',0,MAX(1,$M$5))=TRUE)'),

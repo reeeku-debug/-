@@ -296,6 +296,7 @@ test('入金ダッシュボードを作成できる（数式の括弧・参照�
   // 計算用：受領管理の列（開始年月=D、入金月数=H、最終入金月=I）と台帳の解約列（12列目）を参照する
   assert.match(calc.formulasA1['2,4'], /'20_受領管理'!D2:D/);
   assert.match(calc.formulasA1['2,5'], /'20_受領管理'!H2:H/);
+  assert.match(calc.formulasA1['2,6'], /^=BYROW\('20_受領管理'!E2:G,LAMBDA\(r,.*'20_受領管理'!E1:G1/);
   assert.match(calc.formulasA1['2,8'], /VLOOKUP\('20_受領管理'!A2:A,'10_タレント台帳'!A2:N,12,FALSE\)/);
   assert.match(calc.formulasA1['2,9'], /INDEX\('20_受領管理'!A2:J,0,MAX\(1,\$M\$5\)\)/);
   assert.match(calc.formulasA1['5,13'], /MATCH\(M1,ARRAYFORMULA\(.*'20_受領管理'!A1:J1/);
