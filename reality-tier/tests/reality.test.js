@@ -401,3 +401,31 @@ test('同じ期間のCSVを入れ直すと、月次RAWのボーナスが更新�
   assert.equal(row[13], 20000);
   assert.equal(ss.sheets['日次RAW'].getLastRow(), 2); // 日次RAWは1回分だけ
 });
+
+test('管理シートから取込：シート名に / が入っていても、所属IDと今月・過去月のボーナスを拾う', () => {
+  const ctx = load();
+  const ss = makeSpreadsheet();
+  ss.sheets['月次RAW'].cells.push(
+    [202608, 'aaaaaaaaaaaaaaaaaaaaaaaaaa', 'a', 'A', 1, 1, 0, 1000, 0, 0, '', '', 'x'],
+    [202610, 'aaaaaaaaaaaaaaaaaaaaaaaaaa', 'a', 'A', 1, 1, 0, 1000, 0, 0, '', '', 'x']
+  );
+  const list = (rows) => [[], [], [], [], [], [], [], [], [], [], [], [], [], ['', '', 'ID']].concat(rows);
+  const src = {
+    'REALITY大阪紐付け済': new FakeSheet('REALITY大阪紐付け済', [['', 'ID'], ['大阪', 'aaaaaaaaaaaaaaaaaaaaaaaaaa']]),
+    'REALITY MUSIC紐付け済': new FakeSheet('REALITY MUSIC紐付け済', [['', 'ID']]),
+    'REALITY売上計算（東京/大阪/MUSIC）': new FakeSheet('x', list([['大阪', 'a', 'aaaaaaaaaaaaaaaaaaaaaaaaaa', 0, 0, 0, 0, 1000, 0, 30000]])),
+    'REALITY売上計算（東京/大阪/MUSIC）8月実績': new FakeSheet('x', list([['大阪', 'a', 'aaaaaaaaaaaaaaaaaaaaaaaaaa', 0, 0, 0, 0, 1000, 0, 10000]])),
+  };
+  ctx.SpreadsheetApp = {
+    getActiveSpreadsheet: () => ss,
+    openById: () => ({ getSheets: () => Object.keys(src).map((n) => Object.assign(src[n], { getName: () => n })) }),
+    flush: () => {},
+  };
+  ss.toast = () => {};
+  ss.sheets['所属ID'] = new FakeSheet('所属ID', [['大阪の所属者ID', 'MUSICの所属者ID']]);
+  vm.runInContext('renderSalesDashboard_ = function () {}; ym_ = function () { return 202610; };', ctx);
+  run(ctx, 'importFromManagementSheet()');
+  const rows = ss.sheets['月次RAW'].cells.filter((l) => l && l[1] === 'aaaaaaaaaaaaaaaaaaaaaaaaaa');
+  assert.deepEqual(rows.map((l) => [l[0], l[13]]), [[202608, 10000], [202610, 30000]]);
+  assert.equal(ss.sheets['所属ID'].cells[1][0], 'aaaaaaaaaaaaaaaaaaaaaaaaaa');
+});

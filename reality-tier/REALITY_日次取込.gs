@@ -965,8 +965,13 @@ function readAffiliations_(ss) {
 function importFromManagementSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const src = SpreadsheetApp.openById(MANAGEMENT_SHEET_ID);
+  // シート名は「（東京/大阪/MUSIC）」のように / や空白が入ることがあるので、それらを除いて比べる
+  const plain = function (n) { return String(n).replace(/[\s/／・]/g, ''); };
+  const findSheet = function (name) {
+    return src.getSheets().filter(function (x) { return plain(x.getName()) === plain(name); })[0] || null;
+  };
   const idsOf = function (name) {
-    const s = src.getSheetByName(name);
+    const s = findSheet(name);
     if (!s || s.getLastRow() < 2) return [];
     return s.getRange(2, 2, s.getLastRow() - 1, 1).getValues()
       .map(function (r) { return String(r[0]).trim(); })
@@ -989,14 +994,14 @@ function importFromManagementSheet() {
   const now = new Date();
   const bonusByMonth = {};
   src.getSheets().forEach(function (s) {
-    const name = s.getName();
-    const m = name.match(/^REALITY売上計算（[^）]*）\s*(\d{1,2})月(実績|結果)$/);
+    const name = plain(s.getName());
+    const m = name.match(/^REALITY売上計算（[^）]*）(\d{1,2})月(実績|結果)$/);
     // 「◯月実績」は過去の月、「REALITY売上計算（東京大阪MUSIC）」は今月（途中）
     let key;
     if (m) {
       const month = Number(m[1]);
       key = (month > now.getMonth() + 1 ? now.getFullYear() - 1 : now.getFullYear()) * 100 + month;
-    } else if (name === 'REALITY売上計算（東京大阪MUSIC）') {
+    } else if (name === plain('REALITY売上計算（東京大阪MUSIC）')) {
       key = ym_(now);
     } else {
       return;
