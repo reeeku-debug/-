@@ -1082,9 +1082,10 @@ function renderSalesDashboard_(ss, month) {
 
   const sheet = getOrCreateSheet_(ss, SHEET.sales);
   sheet.getCharts().forEach(function (c) { sheet.removeChart(c); });
-  sheet.getRange(4, 1, Math.max(sheet.getMaxRows() - 3, 1), sheet.getMaxColumns()).breakApart().clear();
-  sheet.getRange('A1:A3').clear();
-  sheet.getRange('C1:Z2').breakApart().clear();
+  // 結合の解除はシート全体でまとめて行う（結合の一部だけを選ぶとエラーになるため）。B3 の月はこのあと入れ直す
+  sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).breakApart();
+  sheet.clear();
+  sheet.clearConditionalFormatRules();
   ensureRows_(sheet, 80);
   ensureCols_(sheet, 26);
   sheet.setHiddenGridlines(true);
