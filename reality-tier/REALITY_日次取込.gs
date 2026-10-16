@@ -45,6 +45,7 @@ const COLUMN_ALIASES = {
   score: ['合計獲得スコア', '獲得スコア', 'スコア', '合計スコア'],
   events: ['参加中のイベント', 'イベント参加数', 'イベント数'],
   debut: ['初配信日', 'デビュー日'],
+  bonus: ['今月のスコアボーナス金額', 'スコアボーナス金額', 'ボーナス金額', 'ボーナス売上'],
 };
 const REQUIRED_COLUMNS = ['id', 'name', 'hours', 'gift'];
 
@@ -60,7 +61,12 @@ const SHEET = {
   history: 'ティア推移',
   byMonth: '月別ティア',
   byMonthDetail: '月別ティア明細',
+  affiliation: '所属ID',
+  sales: '売上ダッシュボード',
 };
+/** 管理シート（アソビアライアンス マネジメント事業部 管理シート）：所属IDと過去のボーナスの取り込み元 */
+const MANAGEMENT_SHEET_ID = '1Y6tuQBsquZydLi2QvtbigjGmMjNbcPTANKEVGW-WG1Y';
+const AFFILIATIONS = ['東京', '大阪', 'MUSIC'];
 const TZ = 'Asia/Tokyo';
 const JUDGE_FIRST_ROW = 5;
 const JUDGE_FORMULA_ROWS = 500;
@@ -96,6 +102,8 @@ function onOpen() {
     .addSeparator()
     .addItem('月別ティアを更新', 'refreshMonthlyView')
     .addItem('ティア推移を再計算', 'refreshTierHistory')
+    .addItem('売上ダッシュボードを更新', 'refreshSalesDashboard')
+    .addItem('所属ID・過去のボーナスを管理シートから取り込む', 'importFromManagementSheet')
     .addSeparator()
     .addItem('自動取込（' + CHECK_MINUTES + '分ごと）を設定', 'setupTrigger')
     .addToUi();
@@ -105,8 +113,9 @@ function onOpen() {
 function onEdit(e) {
   if (!e || !e.range) return;
   const sheet = e.range.getSheet();
-  if (sheet.getName() !== SHEET.byMonth || e.range.getA1Notation() !== 'B3') return;
-  renderMonthlyView_(e.source, parseMonthLabel_(e.range.getValue()));
+  if (e.range.getA1Notation() !== 'B3') return;
+  if (sheet.getName() === SHEET.byMonth) renderMonthlyView_(e.source, parseMonthLabel_(e.range.getValue()));
+  if (sheet.getName() === SHEET.sales) renderSalesDashboard_(e.source, parseMonthLabel_(e.range.getValue()));
 }
 
 /** CHECK_MINUTES 分ごとに dailyImport を実行するトリガーを登録（重複登録はしない） */
@@ -523,7 +532,9 @@ function replaceMonthly_(ss, monthKey, records, fileName) {
 /** 月次RAWの複数の月を一度に置き換える。byMonth: {yyyymm: records} */
 function replaceMonths_(ss, byMonth, label, fileName) {
   const sheet = ss.getSheetByName(SHEET.monthly);
-  const width = 13;
+  const width = 14; // N列＝ボーナス金額
+  ensureCols_(sheet, width);
+  if (!sheet.getRange(1, 14).getValue()) sheet.getRange(1, 14).setValue('ボーナス金額');
   const last = sheet.getLastRow();
   const kept = last >= 2
     ? sheet.getRange(2, 1, last - 1, width).getValues().filter(function (r) {
@@ -539,7 +550,7 @@ function replaceMonths_(ss, byMonth, label, fileName) {
       .sort(function (a, b) { return b.gift - a.gift; })
       .map(function (r) {
         return [monthKey, r.id, r.name, r.rank, r.count, r.hours, r.viewers, r.gift, r.score, r.events,
-          r.debut || '', monthKey + '|' + r.id, stamp];
+          r.debut || '', monthKey + '|' + r.id, stamp, r.bonus || 0];
       }));
   });
   const all = kept.concat(fresh);
@@ -647,11 +658,14 @@ function importedFileIds_(ss) {
 // ===== 表示の更新 ==========================================================
 
 function refreshAll_(ss) {
+  fixJudgeFormulas_(ss);
   SpreadsheetApp.flush(); // 設定シートの評価月などの数式を最新にしてから読む
   renderTierHistory_(ss);
   const sheet = ss.getSheetByName(SHEET.byMonth);
   const month = sheet ? parseMonthLabel_(sheet.getRange('B3').getValue()) : null;
   renderMonthlyView_(ss, month);
+  const sales = ss.getSheetByName(SHEET.sales);
+  renderSalesDashboard_(ss, sales ? parseMonthLabel_(sales.getRange('B3').getValue()) : null);
 }
 
 function refreshMonthlyView() {
@@ -904,6 +918,311 @@ function renderDetail_(ss, idx, month, result) {
   sheet.setColumnWidth(2, 220);
 }
 
+// ===== 売上ダッシュボード（所属別：東京／大阪／MUSIC） =====================
+//
+// 「所属ID」シートの A列に大阪、B列に MUSIC の配信者IDを入れると、その人はその所属、それ以外は東京として集計する。
+// 売上の考え方は管理シートと同じ：配信売上＝合計ギフト金額×還元率、TOTAL売上＝配信売上＋ボーナス金額。
+
+function refreshSalesDashboard() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET.sales);
+  renderSalesDashboard_(ss, sheet ? parseMonthLabel_(sheet.getRange('B3').getValue()) : null);
+  ss.getSheetByName(SHEET.sales).activate();
+}
+
+/** 所属IDシート（なければ作る）から {ID: 所属} を読む */
+function readAffiliations_(ss) {
+  let sheet = ss.getSheetByName(SHEET.affiliation);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET.affiliation);
+    sheet.getRange('A1:B1').setValues([['大阪の所属者ID', 'MUSICの所属者ID']]);
+    styleHeader_(sheet.getRange('A1:B1'));
+    sheet.getRange('D1').setValue('A列に大阪、B列にMUSICの配信者IDを1行に1人ずつ入れてください。どちらにもないIDは東京として集計します。');
+    sheet.setColumnWidths(1, 2, 260);
+    sheet.setFrozenRows(1);
+  }
+  const map = {};
+  const last = sheet.getLastRow();
+  if (last < 2) return map;
+  sheet.getRange(2, 1, last - 1, 2).getValues().forEach(function (r) {
+    const osaka = String(r[0]).trim();
+    const music = String(r[1]).trim();
+    if (music) map[music] = 'MUSIC';
+    if (osaka) map[osaka] = '大阪'; // 両方にある場合は管理シートと同じく大阪を優先
+  });
+  return map;
+}
+
+/**
+ * 管理シートから、所属ID（REALITY大阪紐付け済／REALITY MUSIC紐付け済 のB列）と、
+ * 過去の月のボーナス売上（REALITY売上計算（…）◯月実績 のJ列）を取り込む。何度実行しても同じ結果になる。
+ */
+function importFromManagementSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const src = SpreadsheetApp.openById(MANAGEMENT_SHEET_ID);
+  const idsOf = function (name) {
+    const s = src.getSheetByName(name);
+    if (!s || s.getLastRow() < 2) return [];
+    return s.getRange(2, 2, s.getLastRow() - 1, 1).getValues()
+      .map(function (r) { return String(r[0]).trim(); })
+      .filter(function (v, i, a) { return v && v !== 'ID' && a.indexOf(v) === i; });
+  };
+  const osaka = idsOf('REALITY大阪紐付け済');
+  const music = idsOf('REALITY MUSIC紐付け済');
+  readAffiliations_(ss); // シートがなければ作る
+  const sheet = ss.getSheetByName(SHEET.affiliation);
+  if (sheet.getLastRow() >= 2) sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).clearContent();
+  const n = Math.max(osaka.length, music.length);
+  if (n) {
+    ensureRows_(sheet, n + 1);
+    const out = [];
+    for (let i = 0; i < n; i++) out.push([osaka[i] || '', music[i] || '']);
+    sheet.getRange(2, 1, n, 2).setNumberFormat('@').setValues(out);
+  }
+
+  // 過去の月のボーナス
+  const now = new Date();
+  const bonusByMonth = {};
+  src.getSheets().forEach(function (s) {
+    const m = s.getName().match(/^REALITY売上計算（[^）]*）\s*(\d{1,2})月(実績|結果)$/);
+    if (!m || s.getLastRow() < 16) return;
+    const month = Number(m[1]);
+    const key = (month > now.getMonth() + 1 ? now.getFullYear() - 1 : now.getFullYear()) * 100 + month;
+    const map = bonusByMonth[key] || (bonusByMonth[key] = {});
+    s.getRange(16, 3, s.getLastRow() - 15, 8).getValues().forEach(function (r) {
+      const id = String(r[0]).trim();
+      if (id) map[id] = num_(r[7]); // C列＝ID、J列＝ボーナス売上
+    });
+  });
+  const monthly = ss.getSheetByName(SHEET.monthly);
+  ensureCols_(monthly, 14);
+  monthly.getRange(1, 14).setValue('ボーナス金額');
+  let filled = 0;
+  if (monthly.getLastRow() >= 2) {
+    const keys = monthly.getRange(2, 1, monthly.getLastRow() - 1, 2).getValues();
+    const bonus = monthly.getRange(2, 14, keys.length, 1).getValues();
+    keys.forEach(function (k, i) {
+      const map = bonusByMonth[Number(k[0])];
+      if (map && String(k[1]).trim() in map) {
+        bonus[i][0] = map[String(k[1]).trim()];
+        filled++;
+      }
+    });
+    monthly.getRange(2, 14, bonus.length, 1).setValues(bonus);
+  }
+  renderSalesDashboard_(ss, null);
+  ss.toast('所属ID：大阪 ' + osaka.length + '人・MUSIC ' + music.length + '人／過去のボーナス：' + filled + '件を取り込みました',
+    '売上ダッシュボード', 8);
+}
+
+/** 月次RAW（N列のボーナスまで）から、月×所属の集計とタレント別の一覧を作る */
+function salesData_(ss) {
+  const sheet = ss.getSheetByName(SHEET.monthly);
+  const last = sheet.getLastRow();
+  ensureCols_(sheet, 14);
+  const rows = last < 2 ? [] : sheet.getRange(2, 1, last - 1, 14).getValues();
+  const affil = readAffiliations_(ss);
+  const rate = readConfig_(ss).rate;
+  const months = {};
+  rows.forEach(function (r) {
+    const m = Number(r[0]);
+    const id = String(r[1]).trim();
+    if (!m || !id) return;
+    const d = months[m] || (months[m] = { groups: {}, talents: [] });
+    const group = affil[id] || '東京';
+    const t = {
+      id: id, name: String(r[2]), group: group, count: num_(r[4]), hours: num_(r[5]), viewers: num_(r[6]),
+      gift: num_(r[7]), score: num_(r[8]), bonus: num_(r[13]),
+    };
+    t.stream = t.gift * rate;
+    t.total = t.stream + t.bonus;
+    d.talents.push(t);
+    [group, '合計'].forEach(function (g) {
+      const s = d.groups[g] || (d.groups[g] = { n: 0, count: 0, hours: 0, viewers: 0, gift: 0, score: 0, bonus: 0, stream: 0, total: 0 });
+      s.n++;
+      ['count', 'hours', 'viewers', 'gift', 'score', 'bonus', 'stream', 'total'].forEach(function (k) { s[k] += t[k]; });
+    });
+  });
+  return { months: months, list: Object.keys(months).map(Number).sort(function (a, b) { return a - b; }), rate: rate };
+}
+
+const SALES_GROUP_COLOR = { 東京: '#4472C4', 大阪: '#ED7D31', MUSIC: '#70AD47' };
+
+/** 売上ダッシュボードシートを作り直す（month：表示する月。null なら最新月） */
+function renderSalesDashboard_(ss, month) {
+  const data = salesData_(ss);
+  if (!data.list.length) return;
+  if (!month || !data.months[month]) month = data.list[data.list.length - 1];
+  const prevMonth = addMonths_(month, -1);
+  const cur = data.months[month];
+  const prev = data.months[prevMonth] || null;
+  const zero = { n: 0, count: 0, hours: 0, viewers: 0, gift: 0, score: 0, bonus: 0, stream: 0, total: 0 };
+  const g = function (d, name) { return (d && d.groups[name]) || zero; };
+  const nowYm = ym_(new Date());
+
+  const sheet = getOrCreateSheet_(ss, SHEET.sales);
+  sheet.getCharts().forEach(function (c) { sheet.removeChart(c); });
+  sheet.getRange(4, 1, Math.max(sheet.getMaxRows() - 3, 1), sheet.getMaxColumns()).breakApart().clear();
+  sheet.getRange('A1:A3').clear();
+  sheet.getRange('C1:Z2').breakApart().clear();
+  ensureRows_(sheet, 80);
+  ensureCols_(sheet, 26);
+  sheet.setHiddenGridlines(true);
+  [16, 110, 90, 90, 90, 90, 110, 100, 100, 110, 110, 100, 80, 24].forEach(function (w, i) { sheet.setColumnWidth(i + 1, w); });
+
+  // タイトルと月の選択（B3）
+  sheet.getRange('B1:M1').merge().setValue('REALITY 売上ダッシュボード（所属別）')
+    .setFontSize(16).setFontWeight('bold').setFontColor('#FFFFFF').setBackground(HEADER_BG);
+  sheet.setRowHeight(1, 40);
+  sheet.getRange('B2:M2').merge().setValue(
+    '配信売上＝合計ギフト金額×' + Math.round(data.rate * 100) + '%、TOTAL売上＝配信売上＋ボーナス。所属は「' + SHEET.affiliation +
+      '」シート（大阪・MUSICのID）で決まり、それ以外は東京。CSVを取り込むたびに自動で更新されます。'
+  ).setFontSize(9).setFontColor('#666666').setWrap(true);
+  sheet.getRange('A3').setValue('');
+  sheet.getRange('B3').setDataValidation(
+    SpreadsheetApp.newDataValidation().requireValueInList(data.list.slice().reverse().map(monthLabel_), true).build()
+  ).setNumberFormat('@').setValue(monthLabel_(month)).setBackground('#FFF2CC').setFontWeight('bold').setFontColor('#1155CC');
+  sheet.getRange('C3').setValue('← 月を選ぶと切り替わります' + (month >= nowYm ? '（今月は途中経過）' : ''))
+    .setFontColor(month >= nowYm ? '#CC0000' : '#666666').setFontSize(9);
+
+  // 数字のパネル
+  const total = g(cur, '合計');
+  const ptotal = g(prev, '合計');
+  const tiles = [
+    ['TOTAL売上', total.total, ptotal.total, '¥#,##0'],
+    ['合計ギフト金額', total.gift, ptotal.gift, '¥#,##0'],
+    ['ボーナス売上', total.bonus, ptotal.bonus, '¥#,##0'],
+    ['配信人数', total.n, ptotal.n, '#,##0"人"'],
+    ['1人あたり売上', total.n ? total.total / total.n : 0, ptotal.n ? ptotal.total / ptotal.n : 0, '¥#,##0'],
+    ['配信時間', total.hours, ptotal.hours, '#,##0"h"'],
+  ];
+  tiles.forEach(function (t, i) {
+    const col = 2 + i * 2;
+    sheet.getRange(5, col, 1, 2).merge().setValue(t[0]).setFontSize(9).setFontColor('#666666');
+    sheet.getRange(6, col, 1, 2).merge().setValue(t[1]).setNumberFormat(t[3]).setFontSize(18).setFontWeight('bold');
+    const delta = prev && t[2] ? t[1] / t[2] - 1 : null;
+    sheet.getRange(7, col, 1, 2).merge().setValue(delta === null ? '前月 —' : '前月比 ' + (delta >= 0 ? '+' : '') + Math.round(delta * 1000) / 10 + '%')
+      .setFontSize(9).setFontColor(delta === null ? '#999999' : delta >= 0 ? '#1E7B4A' : '#C0392B');
+    sheet.getRange(5, col, 3, 2).setBackground('#F3F6FB').setHorizontalAlignment('center')
+      .setBorder(true, true, true, true, false, false, '#C9D3E6', SpreadsheetApp.BorderStyle.SOLID);
+  });
+  sheet.setRowHeight(6, 36);
+
+  // 所属別の表
+  let r = 10;
+  sheet.getRange(r - 1, 2).setValue('所属別　' + monthLabel_(month)).setFontWeight('bold');
+  const head = ['所属', '配信人数', '配信回数', '配信時間', '視聴者数', '合計ギフト金額', '獲得スコア', 'ボーナス売上', '配信売上', 'TOTAL売上', '1人あたり', '構成比'];
+  styleHeader_(sheet.getRange(r, 2, 1, head.length).setValues([head]));
+  const groupRows = AFFILIATIONS.concat(['合計']).map(function (name) {
+    const s = g(cur, name);
+    return [name, s.n, s.count, s.hours, s.viewers, s.gift, s.score, s.bonus, s.stream, s.total, s.n ? s.total / s.n : 0, total.total ? s.total / total.total : 0];
+  });
+  sheet.getRange(r + 1, 2, groupRows.length, head.length).setValues(groupRows);
+  sheet.getRange(r + 1, 3, 4, 2).setNumberFormat('#,##0');
+  sheet.getRange(r + 1, 5, 4, 1).setNumberFormat('#,##0.0');
+  sheet.getRange(r + 1, 6, 4, 1).setNumberFormat('#,##0');
+  sheet.getRange(r + 1, 7, 4, 1).setNumberFormat('¥#,##0');
+  sheet.getRange(r + 1, 8, 4, 1).setNumberFormat('#,##0');
+  sheet.getRange(r + 1, 9, 4, 4).setNumberFormat('¥#,##0');
+  sheet.getRange(r + 1, 13, 4, 1).setNumberFormat('0.0%');
+  sheet.getRange(r + 4, 2, 1, head.length).setFontWeight('bold').setBackground('#F3F6FB');
+  AFFILIATIONS.forEach(function (name, i) { sheet.getRange(r + 1 + i, 2).setFontColor(SALES_GROUP_COLOR[name]).setFontWeight('bold'); });
+  sheet.getRange(r, 2, 5, head.length).setBorder(true, true, true, true, true, true, '#D9D9D9', SpreadsheetApp.BorderStyle.SOLID);
+
+  // ティア別×所属（その月を評価月にした判定）
+  const cfg = readConfig_(ss);
+  const idx = buildMonthlyIndex_(readMonthlyRows_(ss));
+  const tierOf = {};
+  judgeMonth_(idx, month, cfg).forEach(function (j) { tierOf[j.id] = j.tier; });
+  r = 17;
+  sheet.getRange(r - 1, 2).setValue('ティア別（' + monthLabel_(month) + 'を評価月にした判定）').setFontWeight('bold');
+  const tHead = ['ティア', '東京', '大阪', 'MUSIC', '合計人数', 'TOTAL売上', '1人あたり'];
+  styleHeader_(sheet.getRange(r, 2, 1, tHead.length).setValues([tHead]));
+  const tierRows = TIERS.map(function (tier) {
+    const people = cur.talents.filter(function (t) { return tierOf[t.id] === tier; });
+    const sum = people.reduce(function (a, t) { return a + t.total; }, 0);
+    const cnt = function (grp) { return people.filter(function (t) { return t.group === grp; }).length; };
+    return [tier, cnt('東京'), cnt('大阪'), cnt('MUSIC'), people.length, sum, people.length ? sum / people.length : 0];
+  });
+  sheet.getRange(r + 1, 2, tierRows.length, tHead.length).setValues(tierRows);
+  sheet.getRange(r + 1, 3, tierRows.length, 4).setNumberFormat('#,##0');
+  sheet.getRange(r + 1, 7, tierRows.length, 2).setNumberFormat('¥#,##0');
+  TIERS.forEach(function (tier, i) { sheet.getRange(r + 1 + i, 2).setBackground(TIER_COLOR[tier]).setFontWeight('bold'); });
+  sheet.getRange(r, 2, tierRows.length + 1, tHead.length).setBorder(true, true, true, true, true, true, '#D9D9D9', SpreadsheetApp.BorderStyle.SOLID);
+
+  // 月別の推移
+  r = 26;
+  sheet.getRange(r - 1, 2).setValue('月別の推移（TOTAL売上）').setFontWeight('bold');
+  const mHead = ['月', '東京', '大阪', 'MUSIC', '合計', '配信人数', '1人あたり', '前月比'];
+  styleHeader_(sheet.getRange(r, 2, 1, mHead.length).setValues([mHead]));
+  const mRows = data.list.map(function (m, i) {
+    const d = data.months[m];
+    const t = g(d, '合計');
+    const p = i > 0 ? g(data.months[data.list[i - 1]], '合計').total : 0;
+    return [monthLabel_(m) + (m >= nowYm ? '（途中）' : ''), g(d, '東京').total, g(d, '大阪').total, g(d, 'MUSIC').total, t.total, t.n,
+      t.n ? t.total / t.n : 0, p ? t.total / p - 1 : ''];
+  });
+  sheet.getRange(r + 1, 2, mRows.length, 1).setNumberFormat('@');
+  sheet.getRange(r + 1, 2, mRows.length, mHead.length).setValues(mRows);
+  sheet.getRange(r + 1, 3, mRows.length, 4).setNumberFormat('¥#,##0');
+  sheet.getRange(r + 1, 7, mRows.length, 1).setNumberFormat('#,##0');
+  sheet.getRange(r + 1, 8, mRows.length, 1).setNumberFormat('¥#,##0');
+  sheet.getRange(r + 1, 9, mRows.length, 1).setNumberFormat('+0.0%;-0.0%;0.0%');
+  sheet.getRange(r, 2, mRows.length + 1, mHead.length).setBorder(true, true, true, true, true, true, '#D9D9D9', SpreadsheetApp.BorderStyle.SOLID);
+  const selRow = data.list.indexOf(month);
+  if (selRow >= 0) sheet.getRange(r + 1 + selRow, 2, 1, mHead.length).setBackground('#FFF2CC');
+  const deltaRange = sheet.getRange(r + 1, 9, mRows.length, 1);
+  sheet.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule().whenNumberGreaterThan(0).setFontColor('#1E7B4A').setRanges([deltaRange]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenNumberLessThan(0).setFontColor('#C0392B').setRanges([deltaRange]).build(),
+  ]);
+
+  // TOTAL売上 上位10人
+  const top = cur.talents.slice().sort(function (a, b) { return b.total - a.total; }).slice(0, 10);
+  const tTop = r + mRows.length + 3;
+  sheet.getRange(tTop - 1, 2).setValue('TOTAL売上 上位10人　' + monthLabel_(month)).setFontWeight('bold');
+  const topHead = ['配信者名', '所属', 'ティア', '合計ギフト金額', 'ボーナス', 'TOTAL売上', '配信時間'];
+  styleHeader_(sheet.getRange(tTop, 2, 1, topHead.length).setValues([topHead]));
+  if (top.length) {
+    sheet.getRange(tTop + 1, 2, top.length, 1).setNumberFormat('@');
+    sheet.getRange(tTop + 1, 2, top.length, topHead.length).setValues(top.map(function (t) {
+      return [t.name, t.group, tierOf[t.id] || '', t.gift, t.bonus, t.total, t.hours];
+    }));
+    sheet.getRange(tTop + 1, 5, top.length, 3).setNumberFormat('¥#,##0');
+    sheet.getRange(tTop + 1, 8, top.length, 1).setNumberFormat('#,##0.0"h"');
+    sheet.getRange(tTop, 2, top.length + 1, topHead.length).setBorder(true, true, true, true, true, true, '#D9D9D9', SpreadsheetApp.BorderStyle.SOLID);
+  }
+  sheet.setFrozenRows(3);
+  SpreadsheetApp.flush();
+
+  // グラフ（O列から右）
+  const chartCol = 15;
+  sheet.insertChart(sheet.newChart().setChartType(Charts.ChartType.COLUMN)
+    .addRange(sheet.getRange(r, 2, mRows.length + 1, 4)).setNumHeaders(1)
+    .setPosition(4, chartCol, 0, 0)
+    .setOption('title', '月別 TOTAL売上（所属別）').setOption('isStacked', true).setOption('legend', { position: 'top' })
+    .setOption('colors', [SALES_GROUP_COLOR['東京'], SALES_GROUP_COLOR['大阪'], SALES_GROUP_COLOR['MUSIC']])
+    .setOption('vAxis', { format: '¥#,##0' }).setOption('width', 640).setOption('height', 300).build());
+  sheet.insertChart(sheet.newChart().setChartType(Charts.ChartType.PIE)
+    .addRange(sheet.getRange(10, 2, 4, 1)).addRange(sheet.getRange(10, 11, 4, 1)).setNumHeaders(1)
+    .setPosition(20, chartCol, 0, 0)
+    .setOption('title', monthLabel_(month) + ' TOTAL売上の所属構成').setOption('pieHole', 0.5)
+    .setOption('colors', [SALES_GROUP_COLOR['東京'], SALES_GROUP_COLOR['大阪'], SALES_GROUP_COLOR['MUSIC']])
+    .setOption('width', 320).setOption('height', 260).build());
+  sheet.insertChart(sheet.newChart().setChartType(Charts.ChartType.COLUMN)
+    .addRange(sheet.getRange(17, 2, 7, 1)).addRange(sheet.getRange(17, 7, 7, 1)).setNumHeaders(1)
+    .setPosition(20, chartCol + 3, 40, 0)
+    .setOption('title', 'ティア別 TOTAL売上').setOption('legend', { position: 'none' }).setOption('colors', [HEADER_BG])
+    .setOption('vAxis', { format: '¥#,##0' }).setOption('width', 320).setOption('height', 260).build());
+  if (top.length) {
+    sheet.insertChart(sheet.newChart().setChartType(Charts.ChartType.BAR)
+      .addRange(sheet.getRange(tTop, 2, top.length + 1, 1)).addRange(sheet.getRange(tTop, 7, top.length + 1, 1)).setNumHeaders(1)
+      .setPosition(34, chartCol, 0, 0)
+      .setOption('title', 'TOTAL売上 上位10人').setOption('legend', { position: 'none' }).setOption('colors', [SALES_GROUP_COLOR['東京']])
+      .setOption('hAxis', { format: '¥#,##0' }).setOption('width', 640).setOption('height', 320).build());
+  }
+}
+
 // ===== ティア判定ロジック（ティア判定シートの数式と同じ判定） =================
 
 /**
@@ -1090,6 +1409,7 @@ function parseRealityCsv_(text) {
       score: num_(cell_(r, col.score)),
       events: countEvents_(cell_(r, col.events)),
       debut: d ? fmtDate_(d) : '',
+      bonus: num_(cell_(r, col.bonus)),
     };
     if (!(id in byId)) order.push(id);
     byId[id] = rec;

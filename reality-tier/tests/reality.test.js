@@ -28,6 +28,9 @@ class FakeRange {
   getValue() {
     return this.getValues()[0][0];
   }
+  setValue(v) {
+    return this.setValues([[v]]);
+  }
   setValues(values) {
     if (values.length !== this.nr || values[0].length !== this.nc) throw new Error('size mismatch');
     if (this.row - 1 + this.nr > this.sheet.maxRows) throw new Error('out of rows');
@@ -80,6 +83,10 @@ class FakeSheet {
   insertRowsAfter(_, n) {
     this.maxRows += n;
   }
+  getMaxColumns() {
+    return 26;
+  }
+  insertColumnsAfter() {}
   appendRow(line) {
     this.cells[this.getLastRow()] = line.slice();
   }
@@ -356,4 +363,29 @@ test('doGet：アプリの画面を返す（?ping=1 なら動作確認のJSON）
   assert.match(shown, /ライバーTier判定/);
   assert.match(shown, /google\.script\.run/);
   assert.equal(JSON.parse(run(ctx, 'doGet({ parameter: { ping: "1" } }).text')).ok, true);
+});
+
+test('売上ダッシュボード：所属IDで東京／大阪／MUSICに分け、TOTAL売上＝ギフト×還元率＋ボーナス', () => {
+  const ctx = load();
+  const ss = makeSpreadsheet();
+  ss.sheets['月次RAW'].cells.push(
+    [202609, 'o1', '大阪の人', 'A', 1, 10, 0, 100000, 0, 0, '', '202609|o1', 'x', 5000],
+    [202609, 'm1', 'MUSICの人', 'A', 1, 5, 0, 20000, 0, 0, '', '202609|m1', 'x', 0],
+    [202609, 't1', '東京の人', 'A', 1, 8, 0, 50000, 0, 0, '', '202609|t1', 'x', 10000],
+    [202609, 'both', '両方にいる人', 'A', 1, 1, 0, 1000, 0, 0, '', '202609|both', 'x', 0]
+  );
+  ss.sheets['所属ID'] = new FakeSheet('所属ID', [['大阪の所属者ID', 'MUSICの所属者ID'], ['o1', 'm1'], ['both', 'both']]);
+  const d = run(ctx, 'salesData_(ss)', { ss });
+  const g = d.months[202609].groups;
+  assert.equal(g['大阪'].n, 2); // 両方にいる人は大阪（管理シートと同じ優先順位）
+  assert.equal(g['MUSIC'].n, 1);
+  assert.equal(g['東京'].n, 1);
+  assert.equal(Math.round(g['大阪'].total), Math.round(100000 * 0.35 + 5000 + 1000 * 0.35));
+  assert.equal(Math.round(g['合計'].total), Math.round((100000 + 20000 + 50000 + 1000) * 0.35 + 15000));
+});
+
+test('CSVの「今月のスコアボーナス金額」を読み取る', () => {
+  const ctx = load();
+  const csv = '配信者名,ID,合計配信時間（時）,合計ギフト金額,今月のスコアボーナス金額\nみるね,a1,10,1000,20000\n';
+  assert.equal(run(ctx, 'parseRealityCsv_(csv)', { csv })[0].bonus, 20000);
 });
