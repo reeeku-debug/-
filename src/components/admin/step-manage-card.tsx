@@ -37,6 +37,7 @@ export function StepManageCard({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const isGoal = step.type === "GOAL";
+  const isStamp = step.type === "STAMP";
 
   function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -82,6 +83,11 @@ export function StepManageCard({
           <div>
             <div className="flex flex-wrap items-center gap-1.5">
               <p className="font-bold">{step.title}</p>
+              {isStamp && (
+                <span className="rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-amber-700">
+                  🎖️ スタンプのみ
+                </span>
+              )}
               {!isGoal && !isFirst && (
                 <span
                   className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
@@ -183,6 +189,19 @@ export function StepManageCard({
               className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
             />
           </div>
+          {!isGoal && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">種別</label>
+              <select
+                name="type"
+                defaultValue={step.type}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
+              >
+                <option value="NORMAL">通常（コメント・画像・URLで完了報告）</option>
+                <option value="STAMP">🎖️ スタンプのみ（報告不要・ワンタップ申請）</option>
+              </select>
+            </div>
+          )}
           {!isGoal && (
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">ボタン文言</label>

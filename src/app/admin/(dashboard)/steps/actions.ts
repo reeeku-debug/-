@@ -23,9 +23,12 @@ export async function createStepAction(patternId: string, formData: FormData): P
     return { success: false, error: "STEP名と内容を入力してください。" };
   }
   const icon = (formData.get("icon") as string | null)?.trim() || "✅";
-  const buttonLabel = (formData.get("buttonLabel") as string | null)?.trim() || "完了報告を送る";
+  const buttonLabelRaw = (formData.get("buttonLabel") as string | null)?.trim();
   const parallelWithPrevious = formData.get("parallelWithPrevious") === "on";
   const goalNote = (formData.get("goalNote") as string | null)?.trim() || null;
+  const typeRaw = formData.get("type");
+  const type = typeRaw === "STAMP" ? "STAMP" : "NORMAL";
+  const buttonLabel = buttonLabelRaw || (type === "STAMP" ? "スタンプをもらう" : "完了報告を送る");
 
   const goal = await prisma.stepTemplate.findFirst({ where: { patternId, type: "GOAL" } });
   const insertOrder = goal ? goal.order : (await prisma.stepTemplate.count({ where: { patternId } })) + 1;
@@ -44,6 +47,7 @@ export async function createStepAction(patternId: string, formData: FormData): P
         title,
         description,
         buttonLabel,
+        type,
         parallelWithPrevious,
         goalNote,
       },
@@ -68,9 +72,13 @@ export async function updateStepAction(stepId: string, formData: FormData): Prom
   const parallelWithPrevious = formData.get("parallelWithPrevious") === "on";
   const goalNote = (formData.get("goalNote") as string | null)?.trim() || null;
 
+  const existing = await prisma.stepTemplate.findUniqueOrThrow({ where: { id: stepId } });
+  const typeRaw = formData.get("type");
+  const type = existing.type === "GOAL" ? "GOAL" : typeRaw === "STAMP" ? "STAMP" : "NORMAL";
+
   const step = await prisma.stepTemplate.update({
     where: { id: stepId },
-    data: { title, description, icon, buttonLabel, parallelWithPrevious, goalNote },
+    data: { title, description, icon, buttonLabel, type, parallelWithPrevious, goalNote },
   });
 
   await recomputeAllTalentsChain(step.patternId);

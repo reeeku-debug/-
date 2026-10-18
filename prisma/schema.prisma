@@ -84,7 +84,7 @@ model StepTemplate {
   description String // STEP内容
   buttonLabel String  @default("完了報告を送る")
 
-  type           String  @default("NORMAL") // NORMAL | GOAL
+  type           String  @default("NORMAL") // NORMAL | GOAL | STAMP（報告不要・ワンタップ申請のSTEP）
   requiresReport Boolean @default(true) // GOALはfalse（前STEP承認で自動解放）
   active         Boolean @default(true)
 

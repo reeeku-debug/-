@@ -38,6 +38,7 @@ export function RoadmapStepCard({
   isLast: boolean;
 }) {
   const isGoal = step.type === "GOAL";
+  const isStamp = step.type === "STAMP";
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +59,19 @@ export function RoadmapStepCard({
     }
     setOpen(false);
     formRef.current?.reset();
+  }
+
+  async function handleStampSubmit() {
+    setError(null);
+    setPending(true);
+    const formData = new FormData();
+    formData.set("stepTemplateId", step.id);
+    formData.set("slug", slug);
+    const result = await submitStepReportAction(formData);
+    setPending(false);
+    if (!result.success) {
+      setError(result.error);
+    }
   }
 
   const badgeClass = STEP_STATUS_BADGE_CLASS[status];
@@ -85,7 +99,7 @@ export function RoadmapStepCard({
               : "border-brand-400 bg-white text-brand-500"
         }`}
       >
-        {status === "CLEAR" ? "✓" : status === "LOCKED" ? "🔒" : isGoal ? "🏆" : "●"}
+        {status === "CLEAR" ? "✓" : status === "LOCKED" ? "🔒" : isGoal ? "🏆" : isStamp ? "🎖️" : "●"}
       </span>
 
       <div
@@ -134,7 +148,20 @@ export function RoadmapStepCard({
           <p className="mt-3 text-sm font-semibold text-brand-600">🎉 スタンプGET！</p>
         )}
 
-        {status === "CHALLENGE" && !open && (
+        {status === "CHALLENGE" && isStamp && (
+          <>
+            {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+            <button
+              onClick={handleStampSubmit}
+              disabled={pending}
+              className="mt-3 w-full rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-600 disabled:opacity-60"
+            >
+              {pending ? "送信中..." : step.buttonLabel}
+            </button>
+          </>
+        )}
+
+        {status === "CHALLENGE" && !isStamp && !open && (
           <button
             onClick={() => setOpen(true)}
             className="mt-3 w-full rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-600"
@@ -143,7 +170,7 @@ export function RoadmapStepCard({
           </button>
         )}
 
-        {status === "CHALLENGE" && open && (
+        {status === "CHALLENGE" && !isStamp && open && (
           <form ref={formRef} onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
             <input type="hidden" name="stepTemplateId" value={step.id} />
             <input type="hidden" name="slug" value={slug} />

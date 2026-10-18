@@ -57,10 +57,17 @@ export function CreateStepForm({ patternId }: { patternId: string }) {
         <textarea name="description" rows={3} required className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
       </div>
       <div>
+        <label className="mb-1 block text-xs font-medium text-gray-600">種別</label>
+        <select name="type" defaultValue="NORMAL" className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm">
+          <option value="NORMAL">通常（コメント・画像・URLで完了報告）</option>
+          <option value="STAMP">🎖️ スタンプのみ（報告不要・ワンタップ申請）</option>
+        </select>
+      </div>
+      <div>
         <label className="mb-1 block text-xs font-medium text-gray-600">ボタン文言</label>
         <input
           name="buttonLabel"
-          defaultValue="完了報告を送る"
+          placeholder="空欄なら種別に応じた既定文言になります"
           className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm"
         />
       </div>
