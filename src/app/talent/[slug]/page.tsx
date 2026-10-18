@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { ProgressHeader } from "@/components/talent/progress-header";
 import { GoalBanner } from "@/components/talent/goal-banner";
 import { RoadmapStepCard, type StepStatus } from "@/components/talent/step-card";
+import { StampBoard, type StampStatus } from "@/components/talent/stamp-board";
+import { computeStampStatuses } from "@/lib/stamps";
 
 export default async function TalentRoadmapPage({ params }: { params: { slug: string } }) {
   // この専用URL（slug）自体がアクセストークンとして機能するため、
@@ -27,6 +29,16 @@ export default async function TalentRoadmapPage({ params }: { params: { slug: st
   const latestReportMap = new Map<string, (typeof reports)[number]>();
   for (const r of reports) {
     if (!latestReportMap.has(r.stepTemplateId)) latestReportMap.set(r.stepTemplateId, r);
+  }
+
+  const [stampItems, stampClaims] = await Promise.all([
+    prisma.stampItem.findMany({ where: { active: true }, orderBy: { order: "asc" } }),
+    prisma.stampClaim.findMany({ where: { talentId: talent.id }, orderBy: { submittedAt: "desc" } }),
+  ]);
+  const stampStatusMap = computeStampStatuses(stampItems, stampClaims) as Map<string, StampStatus>;
+  const latestClaimMap = new Map<string, (typeof stampClaims)[number] | null>();
+  for (const c of stampClaims) {
+    if (!latestClaimMap.has(c.stampItemId)) latestClaimMap.set(c.stampItemId, c);
   }
 
   const normalSteps = steps.filter((s) => s.requiresReport);
@@ -66,6 +78,13 @@ export default async function TalentRoadmapPage({ params }: { params: { slug: st
           />
         ))}
       </ol>
+
+      <StampBoard
+        slug={talent.slug}
+        items={stampItems}
+        statusMap={stampStatusMap}
+        latestClaimMap={latestClaimMap}
+      />
     </main>
   );
 }

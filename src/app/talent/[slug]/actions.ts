@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { submitReport } from "@/lib/progress";
+import { submitStampClaim } from "@/lib/stamps";
 import { saveUploadedImage } from "@/lib/upload";
-import { notifyReportSubmitted } from "@/lib/notify";
+import { notifyReportSubmitted, notifyStampClaimSubmitted } from "@/lib/notify";
 import { getRequestOrigin } from "@/lib/request";
 
 type ActionResult = { success: true } | { success: false; error: string };
@@ -112,6 +113,56 @@ export async function updateStepReportAction(formData: FormData): Promise<Action
   revalidatePath(`/talent/${talent.slug}`);
   revalidatePath(`/admin/talents/${talent.id}`);
   revalidatePath("/admin/reports");
+
+  return { success: true };
+}
+
+/**
+ * タレントによるスタンプ獲得申請。STEPロードマップとは独立しており、
+ * どのスタンプにも順不同で申請できる。slugのみを信頼の根拠とする。
+ */
+export async function submitStampClaimAction(formData: FormData): Promise<ActionResult> {
+  const slug = formData.get("slug");
+  const stampItemId = formData.get("stampItemId");
+  if (typeof slug !== "string" || !slug || typeof stampItemId !== "string" || !stampItemId) {
+    return { success: false, error: "不正なリクエストです。" };
+  }
+
+  const talent = await prisma.talent.findUnique({ where: { slug } });
+  if (!talent) {
+    return { success: false, error: "不正なリクエストです。" };
+  }
+
+  const commentRaw = formData.get("comment");
+  const relatedUrlRaw = formData.get("relatedUrl");
+  const comment = typeof commentRaw === "string" && commentRaw.trim() ? commentRaw.trim() : undefined;
+  const relatedUrl =
+    typeof relatedUrlRaw === "string" && relatedUrlRaw.trim() ? relatedUrlRaw.trim() : undefined;
+  const imageFile = formData.get("image");
+
+  try {
+    let imageUrl: string | undefined;
+    if (imageFile instanceof File && imageFile.size > 0) {
+      imageUrl = await saveUploadedImage(imageFile);
+    }
+
+    await submitStampClaim(talent.id, stampItemId, { comment, relatedUrl, imageUrl });
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "送信に失敗しました。" };
+  }
+
+  revalidatePath(`/talent/${talent.slug}`);
+
+  const item = await prisma.stampItem.findUnique({ where: { id: stampItemId } });
+  if (item) {
+    await notifyStampClaimSubmitted({
+      talentId: talent.id,
+      talentName: talent.name,
+      managementNo: talent.managementNo,
+      stampTitle: item.title,
+      origin: getRequestOrigin(),
+    });
+  }
 
   return { success: true };
 }

@@ -23,7 +23,8 @@ model Admin {
 
   createdAt DateTime @default(now())
 
-  reviewedReports StepReport[] @relation("ReviewedByAdmin")
+  reviewedReports StepReport[]  @relation("ReviewedByAdmin")
+  reviewedClaims  StampClaim[]  @relation("ReviewedStampClaims")
 }
 
 // タレント（VTuber）アカウント
@@ -49,6 +50,7 @@ model Talent {
 
   stepStatuses TalentStepStatus[]
   reports      StepReport[]
+  stampClaims  StampClaim[]
 }
 
 // STEPパターン（ロードマップのひな形）。複数保存でき、タレント登録時に選択する。
@@ -158,4 +160,52 @@ model NotificationSetting {
   dailyDigestEnabled   Boolean @default(true) // 毎日13時に、未承認の完了報告をまとめて通知する
 
   updatedAt DateTime @updatedAt
+}
+
+// スタンプラリーの実績項目（STEPロードマップとは独立。マネージャーが自由に追加・編集・削除・並び替え可能）
+// 順不同で、達成した項目から自由に申請・承認されていく（GOALのような完了条件はない）。
+model StampItem {
+  id          String  @id @default(cuid())
+  order       Int // 表示順
+  icon        String  @default("⭐")
+  title       String // 例: "60時間配信"
+  description String? // 達成条件の説明（任意）
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  claims StampClaim[]
+
+  @@index([order])
+}
+
+// タレントによるスタンプ獲得申請（マネージャーが承認/差し戻し）
+// status: "PENDING" | "APPROVED" | "REJECTED"
+// 同じSTEP完了報告と同じ流れ：差し戻された場合は再申請（新しい行）で対応する。
+model StampClaim {
+  id String @id @default(cuid())
+
+  talentId String
+  talent   Talent @relation(fields: [talentId], references: [id], onDelete: Cascade)
+
+  stampItemId String
+  stampItem   StampItem @relation(fields: [stampItemId], references: [id], onDelete: Cascade)
+
+  comment    String?
+  imageUrl   String?
+  relatedUrl String?
+
+  status        String  @default("PENDING")
+  reviewComment String? // 差し戻し理由など
+
+  submittedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+
+  reviewedByAdminId String?
+  reviewedByAdmin   Admin? @relation("ReviewedStampClaims", fields: [reviewedByAdminId], references: [id])
+
+  @@index([talentId])
+  @@index([stampItemId])
+  @@index([status])
 }
