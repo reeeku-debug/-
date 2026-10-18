@@ -1,0 +1,667 @@
+<title>ミクチャ ティア判定</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Kaku+Gothic+New:wght@700;900&family=Roboto+Mono:wght@500&display=swap">
+<style>
+/* ミクチャ版（REALITY版と同じ骨組み）。Layout: 月タブ → ティア人数の帯 → 絞り込み → T1〜未評価の6列ボード（狭い画面では縦積み）。人を押すと右から詳細パネル */
+:root {
+  --bg: #f3f5f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f7;
+  --fg: #172033;
+  --muted: #5d6880;
+  --line: #dde2ec;
+  --accent: #c2185b;
+  --accent-fg: #ffffff;
+  --accent-soft: #fce4ec;
+  --up: #12805c;
+  --down: #c23a3a;
+  --warn-bg: #fff4dc;
+  --warn-fg: #7a5200;
+  --t1: #f2c94c; --t1-bg: #fdf4d6; --t1-fg: #6b4e00;
+  --t2: #3fae7a; --t2-bg: #e1f4ea; --t2-fg: #135c3a;
+  --t3: #4a8fe0; --t3-bg: #e2eefc; --t3-fg: #1b4f8f;
+  --t4: #9b6fd6; --t4-bg: #efe6fa; --t4-fg: #5a3593;
+  --t5: #9aa3b5; --t5-bg: #eef0f4; --t5-fg: #4a5367;
+  --tu: #c4cad6; --tu-bg: #f7f8fa; --tu-fg: #5d6880;
+  --shadow: 0 1px 2px rgba(23, 32, 51, .06), 0 4px 16px rgba(23, 32, 51, .06);
+  --f-display: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --f-body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  --f-num: "Roboto Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151f; --surface: #1a2030; --surface-2: #222a3d; --fg: #e7ebf3; --muted: #9aa5bd; --line: #2e3850;
+    --accent: #f48fb1; --accent-fg: #11151f; --accent-soft: #4a1f33; --up: #52c999; --down: #ff8080;
+    --warn-bg: #3a2f14; --warn-fg: #f3d58a;
+    --t1-bg: #3a3112; --t1-fg: #f6dc85; --t2-bg: #163527; --t2-fg: #8fdcb5; --t3-bg: #172c48; --t3-fg: #9cc6f6;
+    --t4-bg: #2c2042; --t4-fg: #ccb2f2; --t5-bg: #252b38; --t5-fg: #b6bdcc; --tu-bg: #1d2331; --tu-fg: #9aa5bd;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151f; --surface: #1a2030; --surface-2: #222a3d; --fg: #e7ebf3; --muted: #9aa5bd; --line: #2e3850;
+  --accent: #f48fb1; --accent-fg: #11151f; --accent-soft: #4a1f33; --up: #52c999; --down: #ff8080;
+  --warn-bg: #3a2f14; --warn-fg: #f3d58a;
+  --t1-bg: #3a3112; --t1-fg: #f6dc85; --t2-bg: #163527; --t2-fg: #8fdcb5; --t3-bg: #172c48; --t3-fg: #9cc6f6;
+  --t4-bg: #2c2042; --t4-fg: #ccb2f2; --t5-bg: #252b38; --t5-fg: #b6bdcc; --tu-bg: #1d2331; --tu-fg: #9aa5bd;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+img { max-width: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 14px; line-height: 1.55; }
+.wrap { max-width: 1480px; margin: 0 auto; padding-block: 24px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 16px; }
+h1, h2, h3 { font-family: var(--f-display); margin: 0; text-wrap: balance; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; }
+.title { display: grid; gap: 4px; min-width: 0; }
+.title h1 { font-size: 26px; font-weight: 900; letter-spacing: .01em; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.title h1 small { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: .12em; }
+.title p { margin: 0; color: var(--muted); font-size: 13px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 9px 16px; font-weight: 700; font-size: 13px; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.notice { background: var(--warn-bg); color: var(--warn-fg); border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+
+/* month tabs */
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.tab { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 14px; font-size: 13px; white-space: nowrap; }
+.tab .partial { font-size: 11px; color: var(--warn-fg); background: var(--warn-bg); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.tab[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 700; }
+.tab[aria-selected="true"] .partial { background: transparent; color: inherit; }
+
+/* tier strip */
+.strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+.cell { padding: 12px 14px; display: grid; gap: 2px; border-right: 1px solid var(--line); }
+.cell:last-child { border-right: 0; }
+.cell .lbl { font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.cell .val { font-family: var(--f-num); font-size: 26px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.cell .val small { font-family: var(--f-body); font-size: 12px; color: var(--muted); margin-left: 2px; }
+.cell .delta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.delta .up { color: var(--up); font-weight: 700; } .delta .down { color: var(--down); font-weight: 700; }
+.dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.moves { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.moves b { color: var(--fg); font-variant-numeric: tabular-nums; }
+
+/* filters */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filters input, .filters select { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.filters input { width: min(260px, 100%); }
+.filters .spacer { flex: 1; }
+.filters .meta { font-size: 12px; color: var(--muted); }
+
+/* board */
+.board { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.col { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; display: grid; grid-template-rows: auto auto 1fr; min-width: 0; overflow: hidden; }
+.col-head { padding: 10px 12px 6px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-top: 4px solid var(--c); }
+.col-head h2 { font-size: 18px; font-weight: 900; }
+.col-head .count { font-family: var(--f-num); font-size: 13px; color: var(--muted); }
+.col-desc { padding: 0 12px 8px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); line-height: 1.45; }
+.list { list-style: none; margin: 0; padding: 4px; max-height: 64vh; overflow-y: auto; display: grid; gap: 2px; align-content: start; }
+.person { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 2px 6px; align-items: center; width: 100%; text-align: left; border: 0; background: transparent; border-radius: 6px; padding: 6px; }
+.person:hover { background: var(--surface-2); }
+.person .no { font-family: var(--f-num); font-size: 11px; color: var(--muted); text-align: right; }
+.person .nm { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person .sales { grid-column: 2; font-family: var(--f-num); font-size: 11px; color: var(--muted); }
+.person .chip { grid-row: 1 / span 2; grid-column: 3; }
+.chip { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 5px; white-space: nowrap; background: var(--surface-2); color: var(--muted); }
+.chip.up { background: color-mix(in srgb, var(--up) 14%, transparent); color: var(--up); }
+.chip.down { background: color-mix(in srgb, var(--down) 14%, transparent); color: var(--down); }
+.chip.new { background: var(--accent-soft); color: var(--accent); }
+.empty-col { padding: 16px 12px; color: var(--muted); font-size: 12px; }
+
+.tier-T1 { --c: var(--t1); --cb: var(--t1-bg); --cf: var(--t1-fg); }
+.tier-T2 { --c: var(--t2); --cb: var(--t2-bg); --cf: var(--t2-fg); }
+.tier-T3 { --c: var(--t3); --cb: var(--t3-bg); --cf: var(--t3-fg); }
+.tier-T4 { --c: var(--t4); --cb: var(--t4-bg); --cf: var(--t4-fg); }
+.tier-T5 { --c: var(--t5); --cb: var(--t5-bg); --cf: var(--t5-fg); }
+.tier-U  { --c: var(--tu); --cb: var(--tu-bg); --cf: var(--tu-fg); }
+.badge { display: inline-block; border-radius: 5px; padding: 1px 7px; font-weight: 700; font-size: 12px; background: var(--cb); color: var(--cf); }
+
+/* empty state */
+.empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; padding: 48px 24px; text-align: center; display: grid; gap: 8px; justify-items: center; }
+.empty h2 { font-size: 18px; }
+.empty p { margin: 0; color: var(--muted); max-width: 46ch; }
+
+/* drawer */
+.scrim { position: fixed; inset: 0; background: rgba(10, 14, 24, .35); z-index: 20; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%); background: var(--surface); z-index: 21; box-shadow: -8px 0 32px rgba(0, 0, 0, .2); display: grid; grid-template-rows: auto 1fr; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.drawer-head { padding: 16px 20px 12px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
+.drawer-head .row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.drawer-head h2 { font-size: 18px; word-break: break-all; }
+.drawer-head .sub { font-size: 12px; color: var(--muted); word-break: break-all; }
+.x { border: 0; background: var(--surface-2); border-radius: 8px; width: 32px; height: 32px; font-size: 18px; line-height: 1; flex: none; }
+.drawer-body { overflow-y: auto; padding: 16px 20px 32px; display: flex; flex-direction: column; gap: 18px; min-height: 0; }
+.drawer-body > * { flex-shrink: 0; }
+.kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.kv div { background: var(--surface); padding: 8px 10px; display: grid; gap: 2px; }
+.kv dt { font-size: 11px; color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--f-num); font-variant-numeric: tabular-nums; font-size: 14px; }
+.kv dd.ok { color: var(--up); } .kv dd.ng { color: var(--down); }
+.reason { background: var(--cb); color: var(--cf); border-radius: 10px; padding: 10px 12px; display: grid; gap: 2px; font-size: 13px; }
+.reason b { font-size: 12px; opacity: .8; }
+.section-title { font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+.hist { width: 100%; border-collapse: collapse; font-size: 12px; }
+.hist th, .hist td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.hist th:first-child, .hist td:first-child { text-align: left; }
+.hist th { color: var(--muted); font-weight: 700; font-size: 11px; }
+.hist td { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+.hist tr.sel td { background: var(--accent-soft); }
+.table-scroll { overflow-x: auto; }
+.form { display: grid; gap: 8px; }
+.form label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+.form input, .form textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%; }
+.form textarea { min-height: 72px; resize: vertical; }
+.saved { font-size: 12px; color: var(--up); }
+
+/* dialog */
+.modal { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 16px; background: rgba(10, 14, 24, .4); }
+.dialog { background: var(--surface); border-radius: 14px; width: min(620px, 100%); max-height: calc(100% - 32px); overflow-y: auto; box-shadow: 0 12px 48px rgba(0, 0, 0, .3); padding: 20px; display: grid; gap: 14px; }
+.dialog h2 { font-size: 18px; }
+.dialog p { margin: 0; color: var(--muted); font-size: 13px; }
+.drop { border: 2px dashed var(--line); border-radius: 12px; padding: 28px 16px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.files { display: grid; gap: 8px; }
+.file { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; font-size: 13px; }
+.file .name { font-weight: 700; word-break: break-all; }
+.file .info { color: var(--muted); font-size: 12px; }
+.file .err { color: var(--down); font-size: 12px; }
+.file .warn { color: var(--warn-fg); background: var(--warn-bg); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+.file .ok { color: var(--up); font-size: 12px; font-weight: 700; }
+.file input[type="month"] { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 4px 8px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.check { display: flex !important; align-items: center; gap: 8px; grid-auto-flow: column; }
+.check input { width: auto; }
+.footer { color: var(--muted); font-size: 12px; display: grid; gap: 4px; }
+.footer p { margin: 0; }
+
+@media (max-width: 1100px) {
+  .board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cell { border-bottom: 1px solid var(--line); }
+}
+@media (max-width: 640px) {
+  .board { grid-template-columns: minmax(0, 1fr); }
+  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .list { max-height: 420px; }
+  .title h1 { font-size: 22px; }
+  .grid2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .drawer { animation: slide .18s ease-out; }
+  @keyframes slide { from { transform: translateX(24px); opacity: .6; } }
+}
+
+.views { display: flex; gap: 6px; }
+.view-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 16px; font-weight: 700; font-size: 13px; }
+.view-btn[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.target { font-size: 11px; color: var(--muted); }
+.table-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; min-width: 0; }
+.table-card h3 { font-size: 14px; }
+.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data th, .data td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.data th:first-child, .data td:first-child { text-align: left; }
+.data th { font-size: 11px; color: var(--muted); font-weight: 700; }
+.data tr.total td { font-weight: 700; background: var(--surface-2); }
+.data tr.sel td { background: var(--accent-soft); }
+.bar { display: inline-block; height: 8px; border-radius: 4px; background: var(--accent); vertical-align: middle; margin-right: 6px; }
+.grid2col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .grid2col { grid-template-columns: minmax(0, 1fr); } }
+.form select { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%; }
+.loading { color: var(--muted); padding: 24px 0; }
+.filters label.meta { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.filters label.meta input { width: auto; margin: 0; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="title">
+      <h1>ライバーTier判定 <small>ミクチャ</small></h1>
+      <p>ミクチャの月次CSV（大元・ぷち）を取り込むと、各月を評価月としてティア1〜3を自動判定します。売上は大元／ぷち別に確認できます。</p>
+    </div>
+    <div class="actions">
+      <div class="views" role="tablist" aria-label="表示">
+        <button class="view-btn" id="v-tier" type="button" aria-selected="true">ティア</button>
+        <button class="view-btn" id="v-sales" type="button" aria-selected="false">売上</button>
+      </div>
+      <button class="btn" id="btn-criteria" type="button">判定基準</button>
+      <button class="btn" id="btn-export" type="button" disabled>この月をCSV書き出し</button>
+      <button class="btn primary" id="btn-import" type="button">CSVを取り込む</button>
+    </div>
+  </header>
+
+  <div class="notice" id="notice" hidden></div>
+  <nav class="tabs" id="tabs" aria-label="評価月"></nav>
+
+  <main id="main">
+    <section class="empty" id="empty">
+      <h2 id="empty-title">データを読み込んでいます…</h2>
+      <p id="empty-text">取り込んだ月がタブとして並び、選んだ月のティア別メンバーと売上が表示されます。</p>
+    </section>
+
+    <div id="tier-view" hidden style="display:grid;gap:14px">
+      <section class="strip" id="strip" aria-label="ティア別の人数"></section>
+      <div class="moves" id="moves"></div>
+      <div class="filters">
+        <input id="q" type="search" placeholder="配信者名・IDで探す" aria-label="配信者名・IDで探す">
+        <select id="f-group" aria-label="区分"><option value="">区分：すべて</option></select>
+        <select id="f-owner" aria-label="担当者"><option value="">担当者：すべて</option></select>
+        <label class="meta"><input id="f-active" type="checkbox" checked> ティア外は配信・売上がある人だけ</label>
+        <span class="spacer"></span>
+        <span class="meta" id="meta"></span>
+      </div>
+      <section class="board" id="board" aria-label="ティア別メンバー"></section>
+    </div>
+
+    <div id="sales-view" hidden style="display:grid;gap:14px">
+      <section class="strip" id="sales-strip" aria-label="売上の合計" style="grid-template-columns:repeat(6,minmax(0,1fr))"></section>
+      <div class="grid2col">
+        <section class="table-card"><h3 id="g-title">区分別</h3><div class="table-scroll" id="g-table"></div></section>
+        <section class="table-card"><h3>ティア別</h3><div class="table-scroll" id="t-table"></div></section>
+      </div>
+      <section class="table-card"><h3>月別の推移（売上）</h3><div class="table-scroll" id="m-table"></div></section>
+      <section class="table-card"><h3 id="top-title">売上 上位10人</h3><div class="table-scroll" id="top-table"></div></section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p id="criteria-line"></p>
+    <p>売上＝プロモーター獲得分＋ライバー獲得分（税抜）。会社売上＝プロモーター獲得分。前月＝前月を評価月にしたときのティア。<span id="last-import"></span>　<a id="sheet-link" href="#" target="_blank" rel="noopener" hidden>スプレッドシートを開く</a></p>
+  </footer>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="配信者の詳細"></aside>
+
+<div class="modal" id="import-modal" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="imp-title">
+    <h2 id="imp-title">CSVを取り込む</h2>
+    <p>ミクチャ管理画面の月次CSVを選んでください（大元・ぷちを一緒に選んでOK・UTF-8／Shift_JIS）。区分は「所属プロモーター名」から自動で決まります。同じ月・同じ区分は、新しいCSVでまるごと置き換えます。</p>
+    <label class="drop" id="drop">
+      <span>ここにCSVをドロップ</span>
+      <span class="btn">ファイルを選ぶ</span>
+      <input id="file" type="file" accept=".csv,text/csv" multiple hidden>
+    </label>
+    <div class="files" id="files"></div>
+    <div class="dialog-actions">
+      <button class="btn" id="imp-close" type="button">閉じる</button>
+      <button class="btn primary" id="imp-go" type="button" disabled>取り込む</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="criteria-modal" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="cr-title">
+    <h2 id="cr-title">判定基準</h2>
+    <p>ティア入り済みの人を月売上でティア1／2／3に分けます。ティア入り前は、パーソナル枠（○）かティア外です。変更するとスプレッドシートの設定シートにも保存されます。</p>
+    <form class="form" id="criteria-form">
+      <div class="grid2">
+        <label>ティア入り：月の配信時間（h）<input id="c-hours" type="number" min="0" step="1" required></label>
+        <label>ティア入り：月のイベント参加（回）<input id="c-events" type="number" min="0" step="1" required></label>
+        <label>ティア2：月売上（円）<input id="c-t2" type="number" min="0" step="10000" required></label>
+        <label>ティア1：月売上（円）<input id="c-t1" type="number" min="0" step="10000" required></label>
+        <label>初月ルールの開始月（yyyymm）<input id="c-start" type="number" min="200001" step="1" required></label>
+      </div>
+      <div class="dialog-actions">
+        <span class="saved" id="cr-msg"></span>
+        <button class="btn" id="cr-close" type="button">閉じる</button>
+        <button class="btn primary" id="cr-save" type="submit">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  /*__MX_SHARED__*/
+
+  const TIER_CLASS = { ティア1: 'tier-T1', ティア1候補: 'tier-T4', ティア2: 'tier-T2', ティア3: 'tier-T3', パーソナル枠: 'tier-T5', ティア外: 'tier-U' };
+  const state = { rows: [], masters: {}, cfg: null, idx: null, sel: null, list: [], prevMap: {}, hasPrev: false, view: 'tier', open: null, pending: [], loaded: false };
+  try { const t = localStorage.getItem('mx-month'); if (t) state.sel = Number(t); const v = localStorage.getItem('mx-view'); if (v) state.view = v; } catch (e) {}
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs, children) => {
+    const n = document.createElement(tag);
+    if (attrs) for (const k in attrs) {
+      if (k === 'class') n.className = attrs[k];
+      else if (k === 'text') n.textContent = attrs[k];
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), attrs[k]);
+      else if (attrs[k] !== false && attrs[k] != null) n.setAttribute(k, attrs[k] === true ? '' : attrs[k]);
+    }
+    (children || []).forEach((c) => c != null && n.append(c));
+    return n;
+  };
+  const yen = (n) => Math.round(n || 0).toLocaleString('ja-JP');
+  const fmtH = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
+  const nowYm = () => { const d = new Date(); return d.getFullYear() * 100 + d.getMonth() + 1; };
+  const showNotice = (msg) => { $('notice').textContent = msg || ''; $('notice').hidden = !msg; };
+  const errText = (e) => (e && e.message) || String(e);
+  const gs = (fn, ...args) => new Promise((ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng)[fn](...args));
+
+  // ===== 描画 =====
+  function render() {
+    state.idx = mxBuildIndex(state.rows);
+    const months = state.idx.months;
+    const c = state.cfg || { hours: 60, events: 3, t2: 250000, t1: 500000, start: 202610 };
+    $('criteria-line').textContent = '判定基準：ティア入り＝' + (c.start % 100) + '月以降デビューはデビュー月に' + c.hours + 'h配信＋イベント' + c.events +
+      '回（既存はどの月でも' + c.hours + 'h）、ティア2＝月売上' + c.t2 / 10000 + '万、ティア1＝' + c.t1 / 10000 + '万＋本部長承認';
+    $('v-tier').setAttribute('aria-selected', String(state.view === 'tier'));
+    $('v-sales').setAttribute('aria-selected', String(state.view === 'sales'));
+    if (!months.length) {
+      $('tier-view').hidden = true; $('sales-view').hidden = true; $('empty').hidden = false; $('tabs').replaceChildren();
+      $('btn-export').disabled = true;
+      $('empty-title').textContent = state.loaded ? 'まだ月次データがありません' : 'データを読み込んでいます…';
+      $('empty-text').textContent = state.loaded ? '右上の「CSVを取り込む」から、ミクチャの月次CSV（大元・ぷち）を入れてください。' : '取り込んだ月がタブとして並びます。';
+      return;
+    }
+    if (!state.sel || !state.idx.ids[state.sel]) state.sel = mxDefaultMonth(state.idx, c, nowYm());
+    const M = state.sel;
+    state.list = mxJudgeMonth(state.idx, M, c, state.masters);
+    const P = mxAddMonths(M, -1);
+    state.hasPrev = !!state.idx.ids[P];
+    state.prevMap = {};
+    if (state.hasPrev) mxJudgeMonth(state.idx, P, c, state.masters).forEach((x) => (state.prevMap[x.id] = x.tier));
+    state.list.forEach((x) => {
+      const p = state.prevMap[x.id] || '';
+      x.prevTier = p;
+      x.change = !state.hasPrev ? '' : !p ? '新規' : MX_TIERS.indexOf(x.tier) < MX_TIERS.indexOf(p) ? '昇格' : MX_TIERS.indexOf(x.tier) > MX_TIERS.indexOf(p) ? '降格' : '維持';
+    });
+    $('empty').hidden = true;
+    $('btn-export').disabled = false;
+    renderTabs(months);
+    $('tier-view').hidden = state.view !== 'tier';
+    $('sales-view').hidden = state.view !== 'sales';
+    if (state.view === 'tier') { renderStrip(); renderFilters(); renderBoard(); } else renderSales();
+    if (state.open) renderDrawer();
+  }
+
+  function renderTabs(months) {
+    const now = nowYm();
+    $('tabs').replaceChildren(...months.slice().reverse().map((m) => el('button', {
+      class: 'tab', type: 'button', role: 'tab', 'aria-selected': String(m === state.sel),
+      onclick: () => { state.sel = m; try { localStorage.setItem('mx-month', String(m)); } catch (e) {} render(); },
+    }, [mxMonthLabel(m), m >= now ? el('span', { class: 'partial', text: '途中' }) : null])));
+  }
+
+  function renderStrip() {
+    const count = {}, prevCount = {};
+    state.list.forEach((x) => (count[x.tier] = (count[x.tier] || 0) + 1));
+    Object.values(state.prevMap).forEach((t) => (prevCount[t] = (prevCount[t] || 0) + 1));
+    const targets = (state.cfg && state.cfg.targets) || {};
+    const cells = MX_TIERS.map((t) => {
+      const n = count[t] || 0;
+      const d = n - (prevCount[t] || 0);
+      return el('div', { class: 'cell ' + TIER_CLASS[t] }, [
+        el('span', { class: 'lbl' }, [el('span', { class: 'dot', style: 'background:var(--c)' }), t]),
+        el('span', { class: 'val' }, [String(n), el('small', { text: '人' })]),
+        el('span', { class: 'delta' }, state.hasPrev ? ['前月 ' + (prevCount[t] || 0) + '人 ', el('span', { class: d > 0 ? 'up' : d < 0 ? 'down' : '', text: d === 0 ? '±0' : (d > 0 ? '+' : '') + d })] : ['前月 —']),
+        targets[t] ? el('span', { class: 'target', text: '目標 ' + targets[t] + '人' + (n >= targets[t] ? '（達成）' : '（あと' + (targets[t] - n) + '人）') }) : null,
+      ]);
+    });
+    cells.push(el('div', { class: 'cell' }, [el('span', { class: 'lbl', text: 'CSVの人数' }), el('span', { class: 'val' }, [String(state.list.length), el('small', { text: '人' })])]));
+    $('strip').replaceChildren(...cells);
+    const mv = { 昇格: 0, 降格: 0 };
+    state.list.forEach((x) => { if (x.change in mv) mv[x.change]++; });
+    const M = state.sel;
+    $('moves').replaceChildren(el('span', {}, ['評価月 ', el('b', { text: mxMonthLabel(M) }), M >= nowYm() ? '（途中経過）' : '']),
+      ...(state.hasPrev ? [el('span', {}, ['前月から 昇格 ', el('b', { text: mv['昇格'] + '人' })]), el('span', {}, ['降格 ', el('b', { text: mv['降格'] + '人' })])] : []));
+  }
+
+  function renderFilters() {
+    const fill = (sel, label, values) => {
+      const cur = sel.value;
+      sel.replaceChildren(el('option', { value: '', text: label + '：すべて' }), ...values.map((v) => el('option', { value: v, text: v })));
+      sel.value = values.indexOf(cur) >= 0 ? cur : '';
+    };
+    fill($('f-group'), '区分', Array.from(new Set(state.list.map((x) => x.group).filter(Boolean))));
+    fill($('f-owner'), '担当者', Array.from(new Set(Object.values(state.masters).map((m) => m.owner).filter(Boolean))).sort());
+  }
+
+  function renderBoard() {
+    const q = $('q').value.trim().toLowerCase(), g = $('f-group').value, o = $('f-owner').value, active = $('f-active').checked;
+    const list = state.list.filter((x) => (!q || x.name.toLowerCase().includes(q) || x.id.includes(q)) && (!g || x.group === g) && (!o || x.owner === o));
+    $('meta').textContent = list.length + '人 / ' + state.list.length + '人';
+    const c = state.cfg;
+    const desc = { ティア1: '月売上' + c.t1 / 10000 + '万以上＋本部長承認', ティア1候補: '月売上' + c.t1 / 10000 + '万以上・承認待ち（25日報告）',
+      ティア2: '月売上' + c.t2 / 10000 + '万以上', ティア3: '初月に' + c.hours + 'h配信＋イベント' + c.events + '回を達成',
+      パーソナル枠: 'ティア外の別枠（担当者が指定）', ティア外: 'ティア入り条件が未達' };
+    $('board').replaceChildren(...MX_TIERS.map((t) => {
+      let people = list.filter((x) => x.tier === t);
+      const all = people.length;
+      if (t === 'ティア外' && active) people = people.filter((x) => x.sales > 0 || x.hours > 0);
+      return el('section', { class: 'col ' + TIER_CLASS[t] }, [
+        el('div', { class: 'col-head' }, [el('h2', { text: t }), el('span', { class: 'count', text: all + '人' })]),
+        el('div', { class: 'col-desc', text: desc[t] + (people.length !== all ? '（表示 ' + people.length + '人）' : '') }),
+        people.length ? el('ul', { class: 'list' }, people.slice(0, 400).map((x, i) => el('li', {}, [el('button', { class: 'person', type: 'button', onclick: () => { state.open = x.id; renderDrawer(); } }, [
+          el('span', { class: 'no', text: String(i + 1) }),
+          el('span', { class: 'nm', text: x.name, title: x.name }),
+          el('span', { class: 'sales', text: '¥' + yen(x.sales) + '・' + fmtH(x.hours) + 'h・' + x.group + (x.owner ? '・' + x.owner : '') }),
+          x.change === '昇格' ? el('span', { class: 'chip up', text: x.prevTier + '→' }) : x.change === '降格' ? el('span', { class: 'chip down', text: x.prevTier + '→' }) : x.change === '新規' ? el('span', { class: 'chip new', text: '新規' }) : el('span'),
+        ])]))) : el('div', { class: 'empty-col', text: '該当者なし' }),
+      ]);
+    }));
+  }
+
+  // ===== 売上 =====
+  function sumOf(m, g) {
+    const s = { n: 0, live: 0, count: 0, hours: 0, sales: 0, company: 0, liver: 0, videos: 0 };
+    (state.idx.ids[m] || []).forEach((id) => {
+      const x = state.idx.stat[m + '|' + id];
+      if (g && x.group !== g) return;
+      s.n++; if (x.hours > 0 || x.count > 0) s.live++;
+      ['count', 'hours', 'sales', 'company', 'liver', 'videos'].forEach((k) => (s[k] += x[k]));
+    });
+    return s;
+  }
+  function table(head, rows, opts) {
+    return el('table', { class: 'data' }, [el('thead', {}, [el('tr', {}, head.map((h) => el('th', { text: h })))]),
+      el('tbody', {}, rows.map((r, i) => el('tr', { class: (opts && opts.rowClass && opts.rowClass(r, i)) || '' }, r.map((v) => (v instanceof Node ? el('td', {}, [v]) : el('td', { text: v }))))))]);
+  }
+  function renderSales() {
+    const M = state.sel, P = mxAddMonths(M, -1);
+    const groups = [];
+    state.idx.months.forEach((m) => state.idx.ids[m].forEach((id) => { const g = state.idx.stat[m + '|' + id].group; if (groups.indexOf(g) < 0) groups.push(g); }));
+    const cur = sumOf(M), prv = state.idx.ids[P] ? sumOf(P) : null;
+    const tiles = [['売上（合計）', cur.sales, prv && prv.sales, '¥'], ['会社売上', cur.company, prv && prv.company, '¥'], ['ライバー獲得分', cur.liver, prv && prv.liver, '¥'],
+      ['配信した人数', cur.live, prv && prv.live, '人'], ['1人あたり売上', cur.live ? cur.sales / cur.live : 0, prv && prv.live ? prv.sales / prv.live : 0, '¥'], ['配信時間', cur.hours, prv && prv.hours, 'h']];
+    $('sales-strip').replaceChildren(...tiles.map(([label, v, p, unit]) => {
+      const d = p ? v / p - 1 : null;
+      return el('div', { class: 'cell' }, [el('span', { class: 'lbl', text: label }),
+        el('span', { class: 'val' }, unit === '¥' ? ['¥' + yen(v)] : [yen(v), el('small', { text: unit })]),
+        el('span', { class: 'delta' }, d === null ? ['前月 —'] : ['前月比 ', el('span', { class: d >= 0 ? 'up' : 'down', text: (d >= 0 ? '+' : '') + (d * 100).toFixed(1) + '%' })])]);
+    }));
+    $('g-title').textContent = '区分別　' + mxMonthLabel(M);
+    $('g-table').replaceChildren(table(['区分', 'CSV人数', '配信した人数', '配信時間', '売上', '会社売上', '1人あたり', '構成比'],
+      groups.concat(['合計']).map((g) => { const s = sumOf(M, g === '合計' ? null : g); return [g, yen(s.n), yen(s.live), fmtH(s.hours) + 'h', '¥' + yen(s.sales), '¥' + yen(s.company), '¥' + yen(s.live ? s.sales / s.live : 0), cur.sales ? (s.sales / cur.sales * 100).toFixed(1) + '%' : '—']; }),
+      { rowClass: (r) => (r[0] === '合計' ? 'total' : '') }));
+    const targets = (state.cfg && state.cfg.targets) || {};
+    $('t-table').replaceChildren(table(['ティア'].concat(groups, ['合計', '目標', '売上']), MX_TIERS.map((t) => {
+      const ppl = state.list.filter((x) => x.tier === t);
+      return [el('span', { class: 'badge ' + TIER_CLASS[t], text: t })].concat(groups.map((g) => String(ppl.filter((x) => x.group === g).length)), [String(ppl.length), targets[t] ? String(targets[t]) : '—', '¥' + yen(ppl.reduce((a, x) => a + x.sales, 0))]);
+    })));
+    const max = Math.max(1, ...state.idx.months.map((m) => sumOf(m).sales));
+    $('m-table').replaceChildren(table(['月'].concat(groups, ['合計', '会社売上', '配信した人数', '前月比']), state.idx.months.map((m, i) => {
+      const t = sumOf(m), p = i > 0 ? sumOf(state.idx.months[i - 1]).sales : 0;
+      return [mxMonthLabel(m) + (m >= nowYm() ? '（途中）' : '')].concat(groups.map((g) => '¥' + yen(sumOf(m, g).sales)),
+        [el('span', {}, [el('span', { class: 'bar', style: 'width:' + Math.round((t.sales / max) * 120) + 'px' }), '¥' + yen(t.sales)]), '¥' + yen(t.company), yen(t.live), p ? ((t.sales / p - 1) * 100).toFixed(1) + '%' : '—']);
+    }), { rowClass: (r, i) => (state.idx.months[i] === M ? 'sel' : '') }));
+    $('top-title').textContent = '売上 上位10人　' + mxMonthLabel(M);
+    $('top-table').replaceChildren(table(['配信者名', '区分', 'ティア', '売上', '会社売上', '配信時間', '担当者'],
+      state.list.slice().sort((a, b) => b.sales - a.sales).slice(0, 10).filter((x) => x.sales > 0).map((x) => [x.name, x.group, x.tier, '¥' + yen(x.sales), '¥' + yen(x.company), fmtH(x.hours) + 'h', x.owner || '—'])));
+  }
+
+  // ===== 詳細 =====
+  function closeDrawer() { state.open = null; $('drawer').hidden = true; $('scrim').hidden = true; }
+  function renderDrawer() {
+    const x = state.list.find((p) => p.id === state.open);
+    if (!x) { closeDrawer(); return; }
+    const m = state.masters[x.id] || {};
+    const kv = (k, v) => el('div', {}, [el('dt', { text: k }), el('dd', { text: v })]);
+    const sel = (id, opts, v) => { const s = el('select', { id }, opts.map((o) => el('option', { value: o, text: o || '（空欄）' }))); s.value = v || ''; return s; };
+    const f = {
+      owner: el('input', { id: 'd-owner', value: m.owner || '' }), personal: sel('d-personal', ['', '○'], m.personal), event: sel('d-event', ['', '○', '×'], m.event),
+      special: el('input', { id: 'd-special', value: m.special || '', placeholder: '例：2026/08' }), approve: sel('d-approve', ['', '○'], m.approve),
+      debut: el('input', { id: 'd-debut', value: m.debut || '', placeholder: '例：2026/10（空欄なら初めて配信した月）' }), memo: el('textarea', { id: 'd-memo' }),
+    };
+    f.memo.value = m.memo || '';
+    const msg = el('span', { class: 'saved' });
+    const save = el('button', { class: 'btn primary', type: 'submit', text: '保存' });
+    const history = state.idx.months.filter((mm) => state.idx.ids[mm].indexOf(x.id) >= 0).reverse()
+      .map((mm) => ({ mm, j: mxJudge(state.idx, x.id, mm, state.cfg, state.masters[x.id]) }));
+    const d = $('drawer');
+    d.className = 'drawer ' + TIER_CLASS[x.tier];
+    d.replaceChildren(
+      el('div', { class: 'drawer-head' }, [
+        el('div', { class: 'row' }, [el('h2', { text: x.name }), el('button', { class: 'x', type: 'button', 'aria-label': '閉じる', onclick: closeDrawer, text: '×' })]),
+        el('div', { class: 'sub' }, [el('span', { class: 'badge', text: x.tier }), '　' + mxMonthLabel(state.sel) + '評価' + (x.prevTier ? '・前月 ' + x.prevTier : '') + '・' + x.group + '　ID ' + x.id]),
+      ]),
+      el('div', { class: 'drawer-body' }, [
+        el('div', { class: 'reason' }, [el('b', { text: '判定理由' }), x.reason, el('b', { text: '次の目標' }), x.next]),
+        el('dl', { class: 'kv' }, [kv('配信時間', fmtH(x.hours) + 'h'), kv('配信回数', yen(x.count) + '回'), kv('売上', '¥' + yen(x.sales)), kv('会社売上', '¥' + yen(x.company)),
+          kv('前月 売上', '¥' + yen(x.sales1)), kv('前々月 売上', '¥' + yen(x.sales2)), kv('直近3ヶ月 配信', fmtH(x.recent) + 'h'), kv('動画投稿', yen(x.videos) + '回'),
+          kv('デビュー月', x.debut ? mxMonthLabel(x.debut) : '—'), kv('ティア入り月', x.special || (x.entry ? mxMonthLabel(x.entry) : '—')), kv('初月判定', x.shoki || '—'), kv('担当者', x.owner || '—')]),
+        el('div', { class: 'section-title', text: '月ごとのティア' }),
+        el('div', { class: 'table-scroll' }, [el('table', { class: 'hist' }, [el('thead', {}, [el('tr', {}, ['月', 'ティア', '配信時間', '売上'].map((h) => el('th', { text: h })))]),
+          el('tbody', {}, history.map(({ mm, j }) => el('tr', { class: mm === state.sel ? 'sel' : '' }, [el('td', { text: mxMonthLabel(mm) }), el('td', {}, [el('span', { class: 'badge ' + TIER_CLASS[j.tier], text: j.tier })]), el('td', { text: fmtH(j.hours) + 'h' }), el('td', { text: '¥' + yen(j.sales) })])))])]),
+        el('div', { class: 'section-title', text: 'タレントマスタ（スプレッドシートに保存）' }),
+        el('form', { class: 'form', onsubmit: async (e) => {
+          e.preventDefault();
+          save.disabled = true; msg.style.color = ''; msg.textContent = '保存中…';
+          const body = { owner: f.owner.value.trim(), personal: f.personal.value, event: f.event.value, special: f.special.value.trim(), approve: f.approve.value, debut: f.debut.value.trim(), memo: f.memo.value };
+          try { await gs('mxWebSaveTalent', x.id, body); state.masters[x.id] = Object.assign({ name: x.name }, body); msg.textContent = '保存しました'; render(); }
+          catch (err) { msg.style.color = 'var(--down)'; msg.textContent = '保存できませんでした：' + errText(err); }
+          finally { save.disabled = false; }
+        } }, [
+          el('label', {}, ['担当者', f.owner]),
+          el('div', { class: 'grid2' }, [el('label', {}, ['パーソナル枠', f.personal]), el('label', {}, ['イベント3回（ティア入り月）', f.event]),
+            el('label', {}, ['ティア入り月（特例・既存）', f.special]), el('label', {}, ['本部長承認（ティア1）', f.approve])]),
+          el('label', {}, ['デビュー月', f.debut]),
+          el('label', {}, ['メモ', f.memo]),
+          el('div', { class: 'dialog-actions' }, [msg, save]),
+        ]),
+      ]),
+    );
+    d.hidden = false;
+    $('scrim').hidden = false;
+  }
+
+  // ===== 取込 =====
+  function decode(buf) { try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { return new TextDecoder('shift_jis').decode(buf); } }
+  function guessMonth(name) {
+    let m = name.match(/(20\d{2})[-_年\/]?(\d{1,2})/);
+    if (m) return Number(m[1]) * 100 + Number(m[2]);
+    m = name.match(/(\d{1,2})月/);
+    const now = nowYm();
+    if (m) return mxParseYm(m[1], now);
+    return now;
+  }
+  function peek(text) {
+    const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
+    const head = (lines[0] || '').split(',');
+    const ip = head.findIndex((h) => h.trim() === '所属プロモーター名');
+    if (head.findIndex((h) => h.trim() === 'ユーザーID') < 0) throw new Error('「ユーザーID」の列がありません。ミクチャ管理画面の月次CSVか確認してください');
+    const promoters = {};
+    lines.slice(1).forEach((l) => { const c = l.split(','); if (c[0] && c[0] !== 'ユーザーID') promoters[(c[ip] || '').trim()] = (promoters[(c[ip] || '').trim()] || 0) + 1; });
+    return Object.keys(promoters).map((p) => p + ' ' + promoters[p] + '人').join('／');
+  }
+  async function addFiles(files) {
+    for (const file of files) {
+      const it = { name: file.name, text: '', month: guessMonth(file.name), info: '', error: '', status: '' };
+      try { it.text = decode(await file.arrayBuffer()); it.info = peek(it.text); } catch (e) { it.error = errText(e); }
+      state.pending.push(it);
+    }
+    renderPending();
+  }
+  function renderPending() {
+    $('files').replaceChildren(...state.pending.map((it, i) => el('div', { class: 'file' }, [
+      el('div', { class: 'name', text: it.name }),
+      it.error ? el('div', { class: 'err', text: it.error }) : el('div', { class: 'info', text: it.info }),
+      it.error ? null : el('label', { class: 'info' }, ['対象月 ', el('input', { type: 'month', value: String(it.month).slice(0, 4) + '-' + String(it.month).slice(4), onchange: (e) => { it.month = Number(e.target.value.replace('-', '')); } })]),
+      it.status ? el('div', { class: it.status.indexOf('OK') === 0 ? 'ok' : 'err', text: it.status }) : null,
+      el('div', { class: 'dialog-actions' }, [el('button', { class: 'btn', type: 'button', text: '外す', onclick: () => { state.pending.splice(i, 1); renderPending(); } })]),
+    ])));
+    const ready = state.pending.filter((it) => !it.error && it.status.indexOf('OK') !== 0);
+    $('imp-go').disabled = !ready.length;
+  }
+  async function runImport() {
+    const ready = state.pending.filter((it) => !it.error && it.status.indexOf('OK') !== 0);
+    $('imp-go').disabled = true; $('imp-go').textContent = '取り込み中…（30秒ほど）';
+    try {
+      const messages = await gs('mxWebImport', ready.map((it) => ({ name: it.name, text: it.text, month: it.month })));
+      ready.forEach((it) => { const m = messages.find((x) => x.indexOf(it.name + '：') === 0); it.status = m ? m.slice(it.name.length + 1) : '結果を確認できませんでした'; });
+      await reload();
+    } catch (e) { ready.forEach((it) => (it.status = '取り込めませんでした：' + errText(e))); }
+    $('imp-go').textContent = '取り込む';
+    renderPending();
+  }
+
+  // ===== 判定基準・書き出し =====
+  function openCriteria() {
+    const c = state.cfg;
+    $('c-hours').value = c.hours; $('c-events').value = c.events; $('c-t2').value = c.t2; $('c-t1').value = c.t1; $('c-start').value = c.start;
+    $('cr-msg').textContent = ''; $('criteria-modal').hidden = false;
+  }
+  async function saveCriteria(e) {
+    e.preventDefault();
+    const body = { hours: +$('c-hours').value, events: +$('c-events').value, t2: +$('c-t2').value, t1: +$('c-t1').value, start: +$('c-start').value };
+    $('cr-msg').style.color = ''; $('cr-msg').textContent = '保存中…'; $('cr-save').disabled = true;
+    try { await gs('mxWebSaveConfig', body); await reload(); $('cr-msg').textContent = '保存しました'; }
+    catch (err) { $('cr-msg').style.color = 'var(--down)'; $('cr-msg').textContent = '保存できませんでした：' + errText(err); }
+    finally { $('cr-save').disabled = false; }
+  }
+  function exportMonth() {
+    const head = ['ユーザーID', '配信者名', '区分', '担当者', 'ティア', '前月ティア', '配信回数', '配信時間（h）', '売上', '会社売上', '前月 売上', '前々月 売上', '直近3ヶ月 配信h', 'ティア入り月', 'イベント3回', 'デビュー月', '初月判定', '判定理由', '次のティアまで', 'メモ'];
+    const q = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [head.join(',')].concat(state.list.map((x) => [x.id, x.name, x.group, x.owner, x.tier, x.prevTier, x.count, fmtH(x.hours), Math.round(x.sales), Math.round(x.company), Math.round(x.sales1), Math.round(x.sales2), fmtH(x.recent),
+      x.special || (x.entry ? mxMonthLabel(x.entry) : ''), x.event, x.debut ? mxMonthLabel(x.debut) : '', x.shoki, x.reason, x.next, x.memo].map(q).join(',')));
+    const a = el('a', { href: URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv' })), download: 'ミクチャ_ティア_' + state.sel + '.csv' });
+    document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  // ===== 読み込み =====
+  async function reload() {
+    const data = await gs('mxWebLoad');
+    state.rows = data.rows || []; state.masters = data.masters || {}; state.cfg = data.cfg; state.loaded = true;
+    const last = (data.log || [])[0];
+    $('last-import').textContent = last ? '最終取込：' + last[0] + '（' + last[1] + '・' + last[4] + '）' : '';
+    if (data.url) { $('sheet-link').href = data.url; $('sheet-link').hidden = false; }
+    render();
+  }
+
+  // ===== イベント =====
+  $('v-tier').addEventListener('click', () => { state.view = 'tier'; try { localStorage.setItem('mx-view', 'tier'); } catch (e) {} render(); });
+  $('v-sales').addEventListener('click', () => { state.view = 'sales'; try { localStorage.setItem('mx-view', 'sales'); } catch (e) {} render(); });
+  ['q', 'f-group', 'f-owner', 'f-active'].forEach((id) => $(id).addEventListener(id === 'q' ? 'input' : 'change', () => state.idx && renderBoard()));
+  $('btn-import').addEventListener('click', () => { state.pending = []; $('file').value = ''; renderPending(); $('import-modal').hidden = false; });
+  $('imp-close').addEventListener('click', () => ($('import-modal').hidden = true));
+  $('imp-go').addEventListener('click', runImport);
+  $('file').addEventListener('change', (e) => addFiles(Array.from(e.target.files || [])));
+  const drop = $('drop');
+  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); addFiles(Array.from(e.dataTransfer.files || [])); });
+  $('btn-criteria').addEventListener('click', openCriteria);
+  $('cr-close').addEventListener('click', () => ($('criteria-modal').hidden = true));
+  $('criteria-form').addEventListener('submit', saveCriteria);
+  $('btn-export').addEventListener('click', exportMonth);
+  $('scrim').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('import-modal').hidden = true; $('criteria-modal').hidden = true; closeDrawer(); } });
+
+  render();
+  reload().catch((e) => { state.loaded = true; showNotice('スプレッドシートを読み込めませんでした：' + errText(e) + '。ページを再読み込みしてください。'); render(); });
+})();
+</script>
