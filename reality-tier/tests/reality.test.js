@@ -413,7 +413,9 @@ test('管理シートから取込：シート名に / が入っていても、�
   const src = {
     'REALITY大阪紐付け済': new FakeSheet('REALITY大阪紐付け済', [['', 'ID'], ['大阪', 'aaaaaaaaaaaaaaaaaaaaaaaaaa']]),
     'REALITY MUSIC紐付け済': new FakeSheet('REALITY MUSIC紐付け済', [['', 'ID']]),
-    'REALITY売上計算（東京/大阪/MUSIC）': new FakeSheet('x', list([['大阪', 'a', 'aaaaaaaaaaaaaaaaaaaaaaaaaa', 0, 0, 0, 0, 1000, 0, 30000]])),
+    // 下のほうに古い行が重複していても、最初の行のボーナスを使う
+    'REALITY売上計算（東京/大阪/MUSIC）': new FakeSheet('x', list([['大阪', 'a', 'aaaaaaaaaaaaaaaaaaaaaaaaaa', 0, 0, 0, 0, 1000, 0, 30000],
+      ['大阪', 'a', 'aaaaaaaaaaaaaaaaaaaaaaaaaa', 3, 1, 0, 0, 0, 0, 0]])),
     'REALITY売上計算（東京/大阪/MUSIC）8月実績': new FakeSheet('x', list([['大阪', 'a', 'aaaaaaaaaaaaaaaaaaaaaaaaaa', 0, 0, 0, 0, 1000, 0, 10000]])),
   };
   ctx.SpreadsheetApp = {
@@ -427,5 +429,12 @@ test('管理シートから取込：シート名に / が入っていても、�
   run(ctx, 'importFromManagementSheet()');
   const rows = ss.sheets['月次RAW'].cells.filter((l) => l && l[1] === 'aaaaaaaaaaaaaaaaaaaaaaaaaa');
   assert.deepEqual(rows.map((l) => [l[0], l[13]]), [[202608, 10000], [202610, 30000]]);
+  assert.equal(ss.sheets['所属ID'].cells[1][0], 'aaaaaaaaaaaaaaaaaaaaaaaaaa');
+
+  // CSV取込後の更新（refreshAll_）でも、今月のボーナスを管理シートの値に合わせる（所属IDはそのまま）
+  rows[1][13] = 5000;
+  vm.runInContext('fixJudgeFormulas_ = renderMonthlyView_ = renderTierHistory_ = function () {};', ctx);
+  run(ctx, 'refreshAll_(SpreadsheetApp.getActiveSpreadsheet())');
+  assert.equal(rows[1][13], 30000);
   assert.equal(ss.sheets['所属ID'].cells[1][0], 'aaaaaaaaaaaaaaaaaaaaaaaaaa');
 });

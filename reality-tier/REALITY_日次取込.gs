@@ -663,14 +663,27 @@ function importedFileIds_(ss) {
 // ===== 表示の更新 ==========================================================
 
 function refreshAll_(ss) {
-  fixJudgeFormulas_(ss);
+  // 1つが失敗しても残りは更新する（以前は途中で止まり、売上ダッシュボードが古いまま残ることがあった）
+  const step = function (label, fn) {
+    try {
+      fn();
+    } catch (e) {
+      console.error(label + '：' + e);
+      const log = ss.getSheetByName(SHEET.log);
+      if (log) log.appendRow([new Date(), '', label, '', '', 'エラー：' + (e && e.message ? e.message : e)]);
+    }
+  };
+  // ボーナスは管理シートの値を正とする（CSVの「今月のスコアボーナス金額」はスコアと合わない値が入ることがあるため）
+  step('ボーナスを管理シートから取込', function () { importManagement_(ss, false); });
+  step('ティア判定の数式', function () { fixJudgeFormulas_(ss); });
   SpreadsheetApp.flush(); // 設定シートの評価月などの数式を最新にしてから読む
-  renderTierHistory_(ss);
-  const sheet = ss.getSheetByName(SHEET.byMonth);
-  const month = sheet ? parseMonthLabel_(sheet.getRange('B3').getValue()) : null;
-  renderMonthlyView_(ss, month);
   const sales = ss.getSheetByName(SHEET.sales);
-  renderSalesDashboard_(ss, sales ? parseMonthLabel_(sales.getRange('B3').getValue()) : null);
+  step('売上ダッシュボード', function () {
+    renderSalesDashboard_(ss, sales ? parseMonthLabel_(sales.getRange('B3').getValue()) : null);
+  });
+  const sheet = ss.getSheetByName(SHEET.byMonth);
+  step('月別ティア', function () { renderMonthlyView_(ss, sheet ? parseMonthLabel_(sheet.getRange('B3').getValue()) : null); });
+  step('ティア推移', function () { renderTierHistory_(ss); });
 }
 
 function refreshMonthlyView() {
@@ -964,6 +977,17 @@ function readAffiliations_(ss) {
  */
 function importFromManagementSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const res = importManagement_(ss, true);
+  renderSalesDashboard_(ss, null);
+  ss.toast('所属ID：大阪 ' + res.osaka + '人・MUSIC ' + res.music + '人／ボーナス：' + res.filled + '件を取り込みました',
+    '売上ダッシュボード', 8);
+}
+
+/**
+ * 管理シートの読み込み本体。withIds=false のときはボーナスだけ（CSV取込のたびに自動で呼ぶ）。
+ * ボーナスは管理シート（REALITY売上抜粋シートの「今月のスコアボーナス金額」）の値を正とする。
+ */
+function importManagement_(ss, withIds) {
   const src = SpreadsheetApp.openById(MANAGEMENT_SHEET_ID);
   // シート名は「（東京/大阪/MUSIC）」のように / や空白が入ることがあるので、それらを除いて比べる
   const plain = function (n) { return String(n).replace(/[\s/／・]/g, ''); };
@@ -977,11 +1001,11 @@ function importFromManagementSheet() {
       .map(function (r) { return String(r[0]).trim(); })
       .filter(function (v, i, a) { return v && v !== 'ID' && a.indexOf(v) === i; });
   };
-  const osaka = idsOf('REALITY大阪紐付け済');
-  const music = idsOf('REALITY MUSIC紐付け済');
+  const osaka = withIds ? idsOf('REALITY大阪紐付け済') : [];
+  const music = withIds ? idsOf('REALITY MUSIC紐付け済') : [];
   readAffiliations_(ss); // シートがなければ作る
   const sheet = ss.getSheetByName(SHEET.affiliation);
-  if (sheet.getLastRow() >= 2) sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).clearContent();
+  if (withIds && sheet.getLastRow() >= 2) sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).clearContent();
   const n = Math.max(osaka.length, music.length);
   if (n) {
     ensureRows_(sheet, n + 1);
@@ -1011,7 +1035,8 @@ function importFromManagementSheet() {
     // 一覧の始まりの行がシートによって違うので、14行目から下で C列がIDの行を拾う
     s.getRange(14, 3, s.getLastRow() - 13, 8).getValues().forEach(function (r) {
       const id = String(r[0]).trim();
-      if (/^[0-9a-z]{20,}$/.test(id)) map[id] = num_(r[7]); // C列＝ID、J列＝ボーナス売上
+      // C列＝ID、J列＝ボーナス売上。下のほうに古い行が重複して残っていることがあるので、最初の行を使う
+      if (/^[0-9a-z]{20,}$/.test(id) && !(id in map)) map[id] = num_(r[7]);
     });
   });
   const monthly = ss.getSheetByName(SHEET.monthly);
@@ -1030,9 +1055,7 @@ function importFromManagementSheet() {
     });
     monthly.getRange(2, 14, bonus.length, 1).setValues(bonus);
   }
-  renderSalesDashboard_(ss, null);
-  ss.toast('所属ID：大阪 ' + osaka.length + '人・MUSIC ' + music.length + '人／過去のボーナス：' + filled + '件を取り込みました',
-    '売上ダッシュボード', 8);
+  return { osaka: osaka.length, music: music.length, filled: filled };
 }
 
 /** 月次RAW（N列のボーナスまで）から、月×所属の集計とタレント別の一覧を作る */
