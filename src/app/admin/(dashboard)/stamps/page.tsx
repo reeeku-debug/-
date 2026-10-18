@@ -1,16 +1,37 @@
+import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { StampItemCard } from "@/components/admin/stamp-item-card";
 import { CreateStampItemForm } from "@/components/admin/create-stamp-item-form";
+import { PatternSwitcher } from "@/components/admin/pattern-switcher";
 
-export default async function AdminStampsPage() {
+export default async function AdminStampsPage({
+  searchParams,
+}: {
+  searchParams: { pattern?: string };
+}) {
+  const allPatterns = await prisma.stepPattern.findMany({
+    orderBy: { createdAt: "asc" },
+    include: { _count: { select: { stampItems: true, talents: true } } },
+  });
+  if (allPatterns.length === 0) notFound();
+
+  const currentPattern =
+    allPatterns.find((p) => p.id === searchParams.pattern) ??
+    allPatterns.find((p) => p.isDefault) ??
+    allPatterns[0];
+
   const [items, pendingClaims, approvedCounts] = await Promise.all([
-    prisma.stampItem.findMany({ orderBy: { order: "asc" } }),
+    prisma.stampItem.findMany({ where: { patternId: currentPattern.id }, orderBy: { order: "asc" } }),
     prisma.stampClaim.findMany({
-      where: { status: "PENDING" },
+      where: { status: "PENDING", stampItem: { patternId: currentPattern.id } },
       orderBy: { submittedAt: "asc" },
       include: { talent: true },
     }),
-    prisma.stampClaim.groupBy({ by: ["stampItemId"], where: { status: "APPROVED" }, _count: true }),
+    prisma.stampClaim.groupBy({
+      by: ["stampItemId"],
+      where: { status: "APPROVED", stampItem: { patternId: currentPattern.id } },
+      _count: true,
+    }),
   ]);
 
   const earnedCountByItem = new Map(approvedCounts.map((c) => [c.stampItemId, c._count]));
@@ -21,6 +42,16 @@ export default async function AdminStampsPage() {
     pendingByItem.set(c.stampItemId, list);
   }
 
+  const patternOptions = allPatterns.map((p) => ({
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    isDefault: p.isDefault,
+    group: p.group,
+    itemCount: p._count.stampItems,
+    talentCount: p._count.talents,
+  }));
+
   return (
     <div className="space-y-6">
       <div>
@@ -29,6 +60,13 @@ export default async function AdminStampsPage() {
           STEPロードマップとは別に、順不同で達成できる実績スタンプを管理できます。タレントからの申請はここで承認・差し戻しできます。
         </p>
       </div>
+
+      <PatternSwitcher
+        patterns={patternOptions}
+        currentPatternId={currentPattern.id}
+        basePath="/admin/stamps"
+        itemLabel="スタンプ"
+      />
 
       <div className="space-y-3">
         {items.map((item, idx) => (
@@ -48,7 +86,7 @@ export default async function AdminStampsPage() {
         )}
       </div>
 
-      <CreateStampItemForm />
+      <CreateStampItemForm patternId={currentPattern.id} />
     </div>
   );
 }

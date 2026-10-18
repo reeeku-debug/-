@@ -15,7 +15,7 @@ type PatternLite = {
   description: string | null;
   isDefault: boolean;
   group: string | null;
-  stepCount: number;
+  itemCount: number;
   talentCount: number;
 };
 
@@ -24,9 +24,13 @@ const SUGGESTED_GROUPS = ["ANNIN", "NEXT"];
 export function PatternSwitcher({
   patterns,
   currentPatternId,
+  basePath,
+  itemLabel,
 }: {
   patterns: PatternLite[];
   currentPatternId: string;
+  basePath: string;
+  itemLabel: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -48,7 +52,7 @@ export function PatternSwitcher({
   }
 
   function handleSwitch(patternId: string) {
-    router.push(`/admin/steps?pattern=${patternId}`);
+    router.push(`${basePath}?pattern=${patternId}`);
   }
 
   function handleCreate(e: React.FormEvent<HTMLFormElement>) {
@@ -63,7 +67,7 @@ export function PatternSwitcher({
         return;
       }
       setShowCreate(false);
-      router.push(`/admin/steps?pattern=${res.patternId}`);
+      router.push(`${basePath}?pattern=${res.patternId}`);
     });
   }
 
@@ -101,7 +105,7 @@ export function PatternSwitcher({
         return;
       }
       const remaining = patterns.filter((p) => p.id !== current.id);
-      router.push(`/admin/steps?pattern=${remaining[0]?.id ?? ""}`);
+      router.push(`${basePath}?pattern=${remaining[0]?.id ?? ""}`);
     });
   }
 
@@ -119,7 +123,7 @@ export function PatternSwitcher({
               {groupPatterns.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
-                  {p.isDefault ? "（既定）" : ""}（STEP{p.stepCount}件・利用{p.talentCount}名）
+                  {p.isDefault ? "（既定）" : ""}（{itemLabel}{p.itemCount}件・利用{p.talentCount}名）
                 </option>
               ))}
             </optgroup>
@@ -249,7 +253,7 @@ export function PatternSwitcher({
               checked={copyFromCurrent}
               onChange={(e) => setCopyFromCurrent(e.target.checked)}
             />
-            「{current.name}」のSTEP構成をコピーする（チェックを外すとGOALのみの空パターンになります）
+            「{current.name}」のSTEP・スタンプ構成をコピーする（チェックを外すとGOALのみの空パターンになります）
           </label>
           <div className="flex gap-2">
             <button

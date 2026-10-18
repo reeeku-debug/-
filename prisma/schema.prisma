@@ -64,8 +64,9 @@ model StepPattern {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  steps   StepTemplate[]
-  talents Talent[]
+  steps      StepTemplate[]
+  talents    Talent[]
+  stampItems StampItem[]
 }
 
 // STEPの定義（管理者が変更・追加・削除・並び替え可能なマスタ）
@@ -172,12 +173,15 @@ model StampItem {
   description String? // 達成条件の説明（任意）
   active      Boolean @default(true)
 
+  patternId String // STEPパターンと同じ単位でグループ分けする（例: ANNIN用 / NEXT用）
+  pattern   StepPattern @relation(fields: [patternId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   claims StampClaim[]
 
-  @@index([order])
+  @@index([patternId, order])
 }
 
 // タレントによるスタンプ獲得申請（マネージャーが承認/差し戻し）

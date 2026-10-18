@@ -32,7 +32,7 @@ export default async function AdminStepsPage({
     description: p.description,
     isDefault: p.isDefault,
     group: p.group,
-    stepCount: p._count.steps,
+    itemCount: p._count.steps,
     talentCount: p._count.talents,
   }));
 
@@ -45,7 +45,12 @@ export default async function AdminStepsPage({
         </p>
       </div>
 
-      <PatternSwitcher patterns={patternOptions} currentPatternId={currentPattern.id} />
+      <PatternSwitcher
+        patterns={patternOptions}
+        currentPatternId={currentPattern.id}
+        basePath="/admin/steps"
+        itemLabel="STEP"
+      />
 
       <div className="space-y-3">
         {steps.map((step) => {

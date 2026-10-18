@@ -9,10 +9,14 @@ type CreateResult = { success: true; patternId: string } | { success: false; err
 
 function revalidatePatternPaths() {
   revalidatePath("/admin/steps");
+  revalidatePath("/admin/stamps");
   revalidatePath("/admin/talents/new");
 }
 
-/** 新しいSTEPパターンを作成する。sourcePatternIdを指定すると、そのパターンのSTEP構成を複製する。 */
+/**
+ * 新しいパターンを作成する。sourcePatternIdを指定すると、そのパターンの
+ * STEP構成とスタンプ構成の両方を複製する。
+ */
 export async function createPatternAction(formData: FormData): Promise<CreateResult> {
   await requireAdminSession();
 
@@ -49,6 +53,23 @@ export async function createPatternAction(formData: FormData): Promise<CreateRes
             active: s.active,
             parallelWithPrevious: s.parallelWithPrevious,
             goalNote: s.goalNote,
+          },
+        });
+      }
+
+      const sourceStamps = await tx.stampItem.findMany({
+        where: { patternId: sourcePatternId },
+        orderBy: { order: "asc" },
+      });
+      for (const s of sourceStamps) {
+        await tx.stampItem.create({
+          data: {
+            patternId: created.id,
+            order: s.order,
+            icon: s.icon,
+            title: s.title,
+            description: s.description,
+            active: s.active,
           },
         });
       }

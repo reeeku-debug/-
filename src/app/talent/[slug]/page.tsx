@@ -32,7 +32,7 @@ export default async function TalentRoadmapPage({ params }: { params: { slug: st
   }
 
   const [stampItems, stampClaims] = await Promise.all([
-    prisma.stampItem.findMany({ where: { active: true }, orderBy: { order: "asc" } }),
+    prisma.stampItem.findMany({ where: { patternId: talent.patternId, active: true }, orderBy: { order: "asc" } }),
     prisma.stampClaim.findMany({ where: { talentId: talent.id }, orderBy: { submittedAt: "desc" } }),
   ]);
   const stampStatusMap = computeStampStatuses(stampItems, stampClaims) as Map<string, StampStatus>;

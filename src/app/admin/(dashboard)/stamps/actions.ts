@@ -11,7 +11,7 @@ function revalidateStampPaths() {
   revalidatePath("/admin/stamps");
 }
 
-export async function createStampItemAction(formData: FormData): Promise<Result> {
+export async function createStampItemAction(patternId: string, formData: FormData): Promise<Result> {
   await requireAdminSession();
 
   const title = (formData.get("title") as string | null)?.trim();
@@ -21,9 +21,9 @@ export async function createStampItemAction(formData: FormData): Promise<Result>
   const description = (formData.get("description") as string | null)?.trim() || null;
   const icon = (formData.get("icon") as string | null)?.trim() || "⭐";
 
-  const maxOrder = await prisma.stampItem.aggregate({ _max: { order: true } });
+  const maxOrder = await prisma.stampItem.aggregate({ where: { patternId }, _max: { order: true } });
   await prisma.stampItem.create({
-    data: { title, description, icon, order: (maxOrder._max.order ?? 0) + 1 },
+    data: { patternId, title, description, icon, order: (maxOrder._max.order ?? 0) + 1 },
   });
 
   revalidateStampPaths();
@@ -65,7 +65,10 @@ export async function reorderStampItemAction(itemId: string, direction: "up" | "
 
   const item = await prisma.stampItem.findUniqueOrThrow({ where: { id: itemId } });
   const neighbor = await prisma.stampItem.findFirst({
-    where: direction === "up" ? { order: { lt: item.order } } : { order: { gt: item.order } },
+    where:
+      direction === "up"
+        ? { patternId: item.patternId, order: { lt: item.order } }
+        : { patternId: item.patternId, order: { gt: item.order } },
     orderBy: direction === "up" ? { order: "desc" } : { order: "asc" },
   });
   if (!neighbor) {

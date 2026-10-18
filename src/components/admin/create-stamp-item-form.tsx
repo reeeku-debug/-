@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { createStampItemAction } from "@/app/admin/(dashboard)/stamps/actions";
 
-export function CreateStampItemForm() {
+export function CreateStampItemForm({ patternId }: { patternId: string }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -14,7 +14,7 @@ export function CreateStampItemForm() {
     setError(null);
     setPending(true);
     const formData = new FormData(e.currentTarget);
-    const res = await createStampItemAction(formData);
+    const res = await createStampItemAction(patternId, formData);
     setPending(false);
     if (!res.success) {
       setError(res.error);
