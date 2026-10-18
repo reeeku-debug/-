@@ -402,6 +402,19 @@ test('同じ期間のCSVを入れ直すと、月次RAWのボーナスが更新�
   assert.equal(ss.sheets['日次RAW'].getLastRow(), 2); // 日次RAWは1回分だけ
 });
 
+test('media_ のCSVは取り込まない（同じ列名でも配信者別の数字ではないため）', () => {
+  const ctx = load();
+  const ss = makeSpreadsheet();
+  const head = '配信者名,ID,合計配信時間（時）,合計ギフト金額\n';
+  const imp = (name, text) => run(ctx, 'importCsv_(ss, text, name, "f", null)', { ss, text, name });
+  assert.equal(imp('streamer_20261001_20261017.csv', head + 'みるね,m,70,300000\n').ok, true);
+  const res = imp('media_20261001_20261017.csv', head + 'みるね,m,8,141405\n');
+  assert.equal(res.ok, false);
+  assert.match(res.message, /配信者別のCSV/);
+  const row = ss.sheets['月次RAW'].cells.find((l) => l && l[1] === 'm');
+  assert.equal(row[7], 300000);
+});
+
 test('管理シートから取込：シート名に / が入っていても、所属IDと今月・過去月のボーナスを拾う', () => {
   const ctx = load();
   const ss = makeSpreadsheet();

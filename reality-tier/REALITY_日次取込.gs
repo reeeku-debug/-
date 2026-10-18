@@ -440,6 +440,11 @@ function parseAppExport_(text) {
 function importCsv_(ss, text, fileName, fileId, periodOverride) {
   let targetDate = '';
   try {
+    // REALITYの書き出しには配信者別（streamer_…）のほかに media_… などがあり、同じ列名でも中身が違う。
+    // 取り違えると月次RAWが別の数字で上書きされるので、配信者別のCSVだけを受け付ける
+    if (!/streamer/i.test(String(fileName))) {
+      throw new Error('配信者別のCSV（streamer_開始日_終了日.csv）ではありません。media_ などほかのCSVは取り込めません');
+    }
     const period = periodOverride || periodFromFileName_(fileName);
     if (!period) throw new Error('ファイル名から期間を読み取れません（例：streamer_20261001_20261005.csv）');
     if (period.end < period.start) throw new Error('期間の終了日が開始日より前です');
