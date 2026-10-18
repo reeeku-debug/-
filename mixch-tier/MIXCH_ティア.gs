@@ -627,7 +627,6 @@ function mxRenderJudge_(ss, month) {
     sheet.getRange(6, 1, rows.length + 1, head.length).createFilter();
   }
   sheet.setFrozenRows(6);
-  sheet.setFrozenColumns(2);
   sheet.setColumnWidth(2, 200);
   sheet.setColumnWidths(17, 2, 260);
 }
