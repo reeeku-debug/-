@@ -23,7 +23,13 @@ const MX_SHEET = {
   judge: 'ティア判定',
   board: 'タレント分け',
   sales: '売上ダッシュボード',
+  manual: 'マニュアル',
+  monthView: '月別ティア',
+  summary: 'サマリー',
+  history: 'ティア推移',
 };
+// シートの並び（REALITYのティア表と同じ順）
+const MX_SHEET_ORDER = ['manual', 'sales', 'monthView', 'judge', 'summary', 'board', 'history', 'master', 'settings', 'monthly', 'log'];
 const MX_TZ = 'Asia/Tokyo';
 const MX_TIERS = ['ティア1', 'ティア1候補', 'ティア2', 'ティア3', 'パーソナル枠', 'ティア外'];
 const MX_TIER_COLOR = {
@@ -60,12 +66,14 @@ function onEdit(e) {
   if (name === MX_SHEET.judge) mxRenderJudge_(e.source, month);
   if (name === MX_SHEET.board) mxRenderBoard_(e.source, month);
   if (name === MX_SHEET.sales) mxRenderSales_(e.source, month);
+  if (name === MX_SHEET.monthView) mxRenderMonthView_(e.source, month);
 }
 
 /** 必要なシートを作る（あるものはそのまま） */
 function setupMixch() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   mxEnsureSheets_(ss);
+  mxRenderManual_(ss);
   ss.toast('シートを用意しました。メニュー「ミクチャ取込」から CSV を取り込んでください（メニューが出ないときは再読み込み）', 'ミクチャ', 8);
 }
 
@@ -124,9 +132,18 @@ function mxEnsureSheets_(ss) {
     mxHeader_(s.getRange('A1:E1').setValues([['取込日時', 'ファイル名', '対象月', '行数', '結果']]));
     s.setFrozenRows(1);
   }
-  [MX_SHEET.judge, MX_SHEET.board, MX_SHEET.sales].forEach(function (n) {
-    if (!ss.getSheetByName(n)) ss.insertSheet(n);
+  let added = false;
+  [MX_SHEET.judge, MX_SHEET.board, MX_SHEET.sales, MX_SHEET.manual, MX_SHEET.monthView, MX_SHEET.summary, MX_SHEET.history].forEach(function (n) {
+    if (!ss.getSheetByName(n)) { ss.insertSheet(n); added = true; }
   });
+  if (added) {
+    MX_SHEET_ORDER.forEach(function (k, i) {
+      const sh = ss.getSheetByName(MX_SHEET[k]);
+      if (!sh) return;
+      ss.setActiveSheet(sh);
+      ss.moveActiveSheet(i + 1);
+    });
+  }
   const blank = ss.getSheetByName('シート1') || ss.getSheetByName('Sheet1');
   if (blank && ss.getSheets().length > 1 && blank.getLastRow() === 0) ss.deleteSheet(blank);
 }
@@ -561,6 +578,7 @@ function mxRefreshAll() {
 }
 
 function mxRefreshAll_(ss) {
+  mxEnsureSheets_(ss);
   SpreadsheetApp.flush();
   const pick = function (name) {
     const s = ss.getSheetByName(name);
@@ -569,6 +587,10 @@ function mxRefreshAll_(ss) {
   mxRenderJudge_(ss, pick(MX_SHEET.judge));
   mxRenderBoard_(ss, pick(MX_SHEET.board));
   mxRenderSales_(ss, pick(MX_SHEET.sales));
+  mxRenderMonthView_(ss, pick(MX_SHEET.monthView));
+  mxRenderSummary_(ss);
+  mxRenderHistory_(ss);
+  mxRenderManual_(ss);
 }
 
 /** シートを白紙にして、タイトルと月の選択（B3）を置く */
@@ -831,6 +853,353 @@ function mxRenderSales_(ss, month) {
       .setPosition(34, col, 0, 0).setOption('title', '売上 上位10人').setOption('legend', { position: 'none' }).setOption('colors', [MX_HEADER_BG])
       .setOption('hAxis', { format: '¥#,##0' }).setOption('width', 620).setOption('height', 320).build());
   }
+}
+
+/** ティアの説明（シートの見出し用） */
+function mxTierDesc_(cfg) {
+  return {
+    ティア1: '月売上' + cfg.t1 / 10000 + '万円以上＋本部長承認', ティア1候補: '月売上' + cfg.t1 / 10000 + '万円以上・承認待ち（25日報告）',
+    ティア2: '月売上' + cfg.t2 / 10000 + '万円以上', ティア3: 'ティア入り済み（初月' + cfg.hours + 'h配信＋イベント' + cfg.events + '回）',
+    パーソナル枠: 'ティア外の別枠（担当者が指定）', ティア外: 'ティア入り条件が未達',
+  };
+}
+
+/** 前月とくらべた変化（ティア2↑＝前月ティア2から昇格） */
+function mxChange_(tier, prev) {
+  if (!prev) return '新規';
+  const a = MX_TIERS.indexOf(tier);
+  const b = MX_TIERS.indexOf(prev);
+  return a === b ? prev : prev + (a < b ? '↑' : '↓');
+}
+
+/** 月別ティア：B3で選んだ月のティア別人数（前月比）とメンバー */
+function mxRenderMonthView_(ss, month) {
+  const ctx = mxContext_(ss, month);
+  const sheet = mxStartSheet_(ss, MX_SHEET.monthView, 'ミクチャ 月別ティア',
+    '選んだ月を評価月として判定（設定シートの基準）。「前月」列：ティア2↑＝前月ティア2から昇格、↓＝降格、新規＝前月のCSVにいない人。', ctx);
+  if (!ctx.month) return;
+  const M = ctx.month;
+  const P = mxAddMonths(M, -1);
+  const list = mxJudgeMonth(ctx.idx, M, ctx.cfg, ctx.masters);
+  const hasPrev = !!ctx.idx.ids[P];
+  const prevList = hasPrev ? mxJudgeMonth(ctx.idx, P, ctx.cfg, ctx.masters) : [];
+  const prev = {};
+  prevList.forEach(function (x) { prev[x.id] = x.tier; });
+  const count = function (l, t) { return l.filter(function (x) { return x.tier === t; }).length; };
+  let up = 0;
+  let down = 0;
+  list.forEach(function (x) {
+    const c = hasPrev ? mxChange_(x.tier, prev[x.id]) : '';
+    if (/↑$/.test(c)) up++;
+    if (/↓$/.test(c)) down++;
+  });
+  const n = MX_TIERS.length;
+  const table = [
+    ['ティア'].concat(MX_TIERS, ['合計']),
+    ['人数（' + mxMonthLabel(M) + '）'].concat(MX_TIERS.map(function (t) { return count(list, t); }), [list.length]),
+    ['前月（' + mxMonthLabel(P) + '）'].concat(hasPrev ? MX_TIERS.map(function (t) { return count(prevList, t); }).concat([prevList.length]) : new Array(n + 1).fill('—')),
+    ['増減'].concat(hasPrev ? MX_TIERS.map(function (t) { return count(list, t) - count(prevList, t); }).concat([list.length - prevList.length]) : new Array(n + 1).fill('—')),
+  ];
+  sheet.getRange(4, 2, table.length, n + 2).setValues(table);
+  mxHeader_(sheet.getRange(4, 2, 1, n + 2));
+  MX_TIERS.forEach(function (t, i) { sheet.getRange(4, 3 + i).setBackground(MX_TIER_COLOR[t]).setFontColor('#000000'); });
+  sheet.getRange(7, 3, 1, n + 1).setNumberFormat('+0;-0;0');
+  mxBorder_(sheet.getRange(4, 2, table.length, n + 2));
+  sheet.getRange(8, 2).setValue(hasPrev ? '前月からの移動：昇格 ' + up + '人 ／ 降格 ' + down + '人' : '前月のデータがないため、前月比はありません').setFontWeight('bold');
+
+  const desc = mxTierDesc_(ctx.cfg);
+  const width = 6;
+  const top = 10;
+  const groups = MX_TIERS.map(function (t) { return list.filter(function (x) { return x.tier === t && (t !== 'ティア外' || x.sales > 0 || x.hours > 0); }); });
+  const maxLen = Math.max(1, Math.max.apply(null, groups.map(function (g) { return g.length; })));
+  const grid = [];
+  for (let r = 0; r < maxLen + 3; r++) grid.push(new Array(n * width).fill(''));
+  MX_TIERS.forEach(function (t, g) {
+    const c = g * width;
+    const all = count(list, t);
+    grid[0][c] = t + '｜' + all + '人' + (all !== groups[g].length ? '（配信・売上ありの' + groups[g].length + '人を表示）' : '');
+    grid[1][c] = desc[t];
+    grid[2][c] = 'No.'; grid[2][c + 1] = '配信者名'; grid[2][c + 2] = '区分'; grid[2][c + 3] = '売上（円）'; grid[2][c + 4] = '前月';
+    if (!groups[g].length) grid[3][c + 1] = '該当者なし';
+    groups[g].forEach(function (x, i) {
+      grid[3 + i][c] = i + 1;
+      grid[3 + i][c + 1] = x.name;
+      grid[3 + i][c + 2] = x.group;
+      grid[3 + i][c + 3] = Math.round(x.sales);
+      grid[3 + i][c + 4] = hasPrev ? mxChange_(x.tier, prev[x.id]) : '';
+    });
+  });
+  mxEnsureRows_(sheet, top + grid.length);
+  mxEnsureCols_(sheet, grid[0].length + 1);
+  sheet.getRange(top, 1, grid.length, grid[0].length).setValues(grid);
+  const ups = [];
+  const downs = [];
+  MX_TIERS.forEach(function (t, g) {
+    const c = 1 + g * width;
+    sheet.getRange(top, c, 1, width - 1).merge().setBackground(MX_TIER_COLOR[t]).setFontWeight('bold');
+    sheet.getRange(top + 1, c, 1, width - 1).merge().setFontSize(9).setFontColor('#666666');
+    mxHeader_(sheet.getRange(top + 2, c, 1, width - 1));
+    sheet.getRange(top + 3, c + 3, maxLen, 1).setNumberFormat('#,##0');
+    sheet.setColumnWidth(c, 36);
+    sheet.setColumnWidth(c + 1, 190);
+    sheet.setColumnWidth(c + 2, 50);
+    sheet.setColumnWidth(c + 3, 80);
+    sheet.setColumnWidth(c + 4, 80);
+    if (g < n - 1) sheet.setColumnWidth(c + 5, 14);
+    const r = sheet.getRange(top + 3, c + 4, maxLen, 1);
+    ups.push(r);
+    downs.push(r);
+  });
+  sheet.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule().whenTextEndsWith('↑').setFontColor('#0B8043').setBold(true).setRanges(ups).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenTextEndsWith('↓').setFontColor('#CC0000').setBold(true).setRanges(downs).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo('新規').setFontColor('#1155CC').setRanges(ups).build(),
+  ]);
+}
+
+/** サマリー：ティア別人数（大元／ぷち）と、今月の目標管理（手入力の列は残す） */
+function mxRenderSummary_(ss) {
+  const ctx = mxContext_(ss, null);
+  const sheet = ss.getSheetByName(MX_SHEET.summary) || ss.insertSheet(MX_SHEET.summary);
+  // 手入力の列（月初の人数・今月の新規目標・担当・移動の内容）を読んでおく
+  const keep = {};
+  if (sheet.getLastRow() >= 5) {
+    const old = sheet.getRange(5, 1, Math.min(sheet.getLastRow() - 4, 20), 18).getValues();
+    old.forEach(function (r) {
+      const t = String(r[7] || '').trim();
+      if (MX_TIERS.indexOf(t) >= 0) keep[t] = { start: r[10], add: r[11], owner: r[16], move: r[17] };
+    });
+  }
+  sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).breakApart();
+  sheet.clear();
+  sheet.clearConditionalFormatRules();
+  mxEnsureCols_(sheet, 18);
+  sheet.getRange('A1').setValue('ミクチャ ティア別 人数サマリー').setFontSize(16).setFontWeight('bold');
+  if (!ctx.month) {
+    sheet.getRange('A2').setValue('まだ月次データがありません。CSVを取り込むと表示されます。');
+    return;
+  }
+  const M = ctx.month;
+  sheet.getRange('A2').setValue('評価月 ' + mxMonthLabel(M) + (M >= ctx.nowYm ? '（途中経過）' : '') +
+    ' の判定から自動集計（評価月は「設定」シートで指定、空欄なら今月より前の最新月）。黄色の列は手入力で、更新しても消えません。').setFontSize(9).setFontColor('#666666');
+  const list = mxJudgeMonth(ctx.idx, M, ctx.cfg, ctx.masters);
+  const groups = [];
+  ctx.idx.ids[M].forEach(function (id) {
+    const g = ctx.idx.stat[M + '|' + id].group;
+    if (groups.indexOf(g) < 0) groups.push(g);
+  });
+  const prevM = mxAddMonths(M, -1);
+  const prevList = ctx.idx.ids[prevM] ? mxJudgeMonth(ctx.idx, prevM, ctx.cfg, ctx.masters) : [];
+  const cnt = function (l, t, g) { return l.filter(function (x) { return x.tier === t && (!g || x.group === g); }).length; };
+
+  // 左：ティア × 区分（A〜F）
+  const lHead = ['ティア'].concat(groups, ['合計', '構成比', '売上（円）']);
+  const lRows = MX_TIERS.map(function (t) {
+    const ppl = list.filter(function (x) { return x.tier === t; });
+    return [t].concat(groups.map(function (g) { return cnt(list, t, g); }), [ppl.length, list.length ? ppl.length / list.length : 0,
+      Math.round(ppl.reduce(function (a, x) { return a + x.sales; }, 0))]);
+  });
+  lRows.push(['合計'].concat(groups.map(function (g) { return list.filter(function (x) { return x.group === g; }).length; }),
+    [list.length, 1, Math.round(list.reduce(function (a, x) { return a + x.sales; }, 0))]));
+  const lw = lHead.length;
+  sheet.getRange(4, 1, 1, lw).setValues([lHead]);
+  sheet.getRange(5, 1, lRows.length, lw).setValues(lRows);
+  mxHeader_(sheet.getRange(4, 1, 1, lw));
+  sheet.getRange(5, lw - 1, lRows.length, 1).setNumberFormat('0.0%');
+  sheet.getRange(5, lw, lRows.length, 1).setNumberFormat('#,##0');
+  sheet.getRange(5 + MX_TIERS.length, 1, 1, lw).setFontWeight('bold').setBackground('#F3F3F3');
+  mxBorder_(sheet.getRange(4, 1, lRows.length + 1, lw));
+
+  // 右：目標管理（H〜P）。数式なので、手入力を変えるとその場で計算し直す
+  const c0 = 8; // H列
+  const rHead = ['ティア', '現在（自動）', '前月（自動）', '月初の人数（手入力）', '今月の新規目標', '目標（計）', '増えた人数', 'あと何名', '達成率', '担当', '移動の内容'];
+  sheet.getRange(4, c0, 1, rHead.length).setValues([rHead]);
+  mxHeader_(sheet.getRange(4, c0, 1, rHead.length));
+  const rRows = MX_TIERS.map(function (t, i) {
+    const r = 5 + i;
+    const k = keep[t] || {};
+    const start = k.start === '' || k.start == null ? (prevList.length ? cnt(prevList, t) : '') : k.start;
+    return [t, cnt(list, t), prevList.length ? cnt(prevList, t) : '', start, k.add == null ? '' : k.add,
+      '=IF(L' + r + '="","",K' + r + '+L' + r + ')', '=IF(K' + r + '="","",I' + r + '-K' + r + ')',
+      '=IF(M' + r + '="","",MAX(M' + r + '-I' + r + ',0))', '=IF(OR(L' + r + '="",L' + r + '=0),"",N' + r + '/L' + r + ')',
+      k.owner == null ? '' : k.owner, k.move == null ? '' : k.move];
+  });
+  sheet.getRange(5, c0, rRows.length, rHead.length).setValues(rRows);
+  sheet.getRange(5, c0 + 3, rRows.length, 2).setBackground('#FFF2CC');
+  sheet.getRange(5, c0 + 9, rRows.length, 2).setBackground('#FFF2CC');
+  sheet.getRange(5, c0 + 8, rRows.length, 1).setNumberFormat('0%');
+  sheet.getRange(5, c0 + 6, rRows.length, 1).setNumberFormat('+0;-0;0');
+  mxBorder_(sheet.getRange(4, c0, rRows.length + 1, rHead.length));
+  MX_TIERS.forEach(function (t, i) {
+    sheet.getRange(5 + i, 1).setBackground(MX_TIER_COLOR[t]).setFontWeight('bold');
+    sheet.getRange(5 + i, c0).setBackground(MX_TIER_COLOR[t]).setFontWeight('bold');
+  });
+  const tg = ctx.cfg.targets || {};
+  sheet.getRange(13, c0).setValue('参考：設定シートの目標人数　ティア1 ' + (tg['ティア1'] || '—') + '人／ティア2 ' + (tg['ティア2'] || '—') +
+    '人／ティア3 ' + (tg['ティア3'] || '—') + '人（アプリの「目標」に表示）').setFontSize(9).setFontColor('#666666');
+  sheet.setColumnWidth(1, 110);
+  sheet.setColumnWidths(2, lw - 1, 80);
+  sheet.setColumnWidth(lw + 1, 20);
+  sheet.setColumnWidth(c0, 110);
+  sheet.setColumnWidths(c0 + 1, 8, 95);
+  sheet.setColumnWidth(c0 + 9, 100);
+  sheet.setColumnWidth(c0 + 10, 180);
+  sheet.setRowHeight(4, 36);
+  sheet.getRange(4, 1, 1, c0 + rHead.length).setWrap(true).setVerticalAlignment('middle');
+}
+
+/** ティア推移：全月のティア別人数と、タレントごとの月別ティア */
+function mxRenderHistory_(ss) {
+  const ctx = mxContext_(ss, null);
+  const sheet = ss.getSheetByName(MX_SHEET.history) || ss.insertSheet(MX_SHEET.history);
+  sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).breakApart();
+  if (sheet.getFilter()) sheet.getFilter().remove();
+  sheet.clear();
+  sheet.clearConditionalFormatRules();
+  sheet.setFrozenRows(0);
+  sheet.setFrozenColumns(0);
+  sheet.getRange('A1').setValue('ミクチャ ティア推移（設定シートの基準で全月を判定）').setFontSize(16).setFontWeight('bold');
+  sheet.getRange('A2').setValue('各月をその月の評価月として判定した結果。下の一覧は、どこかの月でティア入り・パーソナル枠になった人と、配信・売上があった人。')
+    .setFontSize(9).setFontColor('#666666');
+  const months = ctx.idx.months;
+  if (!months.length) return;
+  const labels = months.map(function (m) { return mxMonthLabel(m) + (m >= ctx.nowYm ? '（途中）' : ''); });
+  const byMonth = months.map(function (m) { return mxJudgeMonth(ctx.idx, m, ctx.cfg, ctx.masters); });
+  const head = [['月'].concat(labels)];
+  const counts = MX_TIERS.map(function (t) {
+    return [t].concat(byMonth.map(function (l) { return l.filter(function (x) { return x.tier === t; }).length; }));
+  });
+  counts.push(['合計'].concat(byMonth.map(function (l) { return l.length; })));
+  mxEnsureCols_(sheet, months.length + 3);
+  sheet.getRange(4, 1, 1, months.length + 1).setValues(head);
+  mxHeader_(sheet.getRange(4, 1, 1, months.length + 1));
+  sheet.getRange(5, 1, counts.length, months.length + 1).setValues(counts);
+  MX_TIERS.forEach(function (t, i) { sheet.getRange(5 + i, 1).setBackground(MX_TIER_COLOR[t]).setFontWeight('bold'); });
+  sheet.getRange(5 + MX_TIERS.length, 1, 1, months.length + 1).setFontWeight('bold').setBackground('#F3F3F3');
+  mxBorder_(sheet.getRange(4, 1, counts.length + 1, months.length + 1));
+
+  // タレントごと
+  const tierOf = {};
+  const active = {};
+  byMonth.forEach(function (l, i) {
+    l.forEach(function (x) {
+      tierOf[x.id + '|' + months[i]] = x.tier;
+      if (x.tier !== 'ティア外' || x.sales > 0 || x.hours > 0) active[x.id] = true;
+    });
+  });
+  const M = ctx.month;
+  const evalTier = {};
+  const evalSales = {};
+  (byMonth[months.indexOf(M)] || []).forEach(function (x) { evalTier[x.id] = x.tier; evalSales[x.id] = x.sales; });
+  const ids = Object.keys(active).sort(function (a, b) {
+    const ta = MX_TIERS.indexOf(evalTier[a] || 'ティア外');
+    const tb = MX_TIERS.indexOf(evalTier[b] || 'ティア外');
+    return ta - tb || (evalSales[b] || 0) - (evalSales[a] || 0);
+  });
+  const top = 5 + counts.length + 2;
+  const tHead = ['配信者名', 'ID', '区分'].concat(labels, [mxMonthLabel(M) + 'のティア（評価月）']);
+  const rows = ids.map(function (id) {
+    return [ctx.idx.name[id] || id, id, ctx.idx.group[id] || ''].concat(months.map(function (m) { return tierOf[id + '|' + m] || ''; }), [evalTier[id] || '']);
+  });
+  mxEnsureRows_(sheet, top + rows.length + 1);
+  mxEnsureCols_(sheet, tHead.length);
+  sheet.getRange(top, 1, 1, tHead.length).setValues([tHead]);
+  mxHeader_(sheet.getRange(top, 1, 1, tHead.length));
+  if (rows.length) {
+    sheet.getRange(top + 1, 1, rows.length, tHead.length).setNumberFormat('@').setValues(rows);
+    const range = sheet.getRange(top + 1, 4, rows.length, months.length + 1);
+    sheet.setConditionalFormatRules(MX_TIERS.filter(function (t) { return t !== 'ティア外'; }).map(function (t) {
+      return SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(t).setBackground(MX_TIER_COLOR[t]).setRanges([range]).build();
+    }));
+    sheet.getRange(top, 1, rows.length + 1, tHead.length).createFilter();
+  }
+  sheet.setColumnWidth(1, 200);
+  sheet.setColumnWidth(2, 90);
+  sheet.setColumnWidth(3, 50);
+  sheet.setColumnWidths(4, months.length + 1, 95);
+}
+
+/** マニュアル：使い方とティアの定義（設定シートの値で作り直す） */
+function mxRenderManual_(ss) {
+  const sheet = ss.getSheetByName(MX_SHEET.manual) || ss.insertSheet(MX_SHEET.manual);
+  const c = mxReadConfig_(ss);
+  const startLabel = mxMonthLabel(c.start);
+  const t1 = c.t1 / 10000;
+  const t2 = c.t2 / 10000;
+  const blocks = [
+    [['ミクチャ ティア判定・売上ダッシュボード 運用マニュアル']],
+    [['対象：ミクチャのタレント担当社員 ／ 月次CSV（大元・ぷち）取込版']],
+    [],
+    [['1. ティアの定義']],
+    [['ティア', '条件', '判定に使う数値', '次に目指すこと']],
+    [['ティア1', 'ティア入り済み＋月売上' + t1 + '万円以上＋本部長承認（○）', '評価月の売上', '維持'],
+      ['ティア1候補', 'ティア入り済み＋月売上' + t1 + '万円以上（承認待ち）', '同上', '25日に本部長へ報告→承認でティア1'],
+      ['ティア2', 'ティア入り済み＋月売上' + t2 + '万円以上', '同上', '月売上' + t1 + '万円'],
+      ['ティア3', 'ティア入り済み（直近3ヶ月に配信あり）', 'ティア入り月・直近3ヶ月の配信時間', '月売上' + t2 + '万円'],
+      ['パーソナル枠', 'ティア外のうち、担当者がタレントマスタで「○」にした人', '—', '月' + c.hours + 'h・イベント' + c.events + '回'],
+      ['ティア外', '上記以外（ティア入り条件が未達、または直近3ヶ月に配信なし）', '—', '月' + c.hours + 'h・イベント' + c.events + '回']],
+    [],
+    [['判定の細則']],
+    [['項目', 'ルール']],
+    [['売上', 'CSVの「プロモーター獲得分（税抜）」＋「ライバー獲得分（税抜）」。会社売上＝プロモーター獲得分'],
+      ['ティア入り（' + startLabel + '以降デビュー）', 'デビュー月に' + c.hours + 'h配信＋イベント' + c.events + '回を達成した人だけ（初月ルール）'],
+      ['ティア入り（それより前から在籍）', c.hours + 'h以上配信した最初の月にティア入り（従来ルール）'],
+      ['デビュー月', 'タレントマスタの「デビュー月」。空欄なら初めて配信した月'],
+      ['イベント', 'CSVにないため、タレントマスタの「イベント3回」が「×」の人はティア入りしない（空欄は未確認として扱う）'],
+      ['特例', 'タレントマスタの「ティア入り月（特例・既存）」に月を入れると、条件に関係なくティア入り'],
+      ['評価月', '設定シートで指定。空欄なら今月より前の最新月（月の途中は前月で判定）'],
+      ['区分', 'CSVの「所属プロモーター名」で大元／ぷちを判定（設定シートの対応表）']],
+    [],
+    [['2. シートの見方']],
+    [['シート', '内容']],
+    [['売上ダッシュボード', 'B3で月を選ぶ。売上・会社売上・配信人数のパネル、大元／ぷち別、ティア別（目標つき）、月別推移、上位10人、グラフ'],
+      ['月別ティア', 'B3で月を選ぶ。ティア別の人数（前月比・昇格／降格）と、ティアごとのメンバー（前月のティアつき）'],
+      ['ティア判定', 'B3で月を選ぶ。全員の数値・判定理由・次のティアまで。フィルタで担当者や区分を絞り込める'],
+      ['サマリー', '評価月のティア別人数（大元／ぷち）と今月の目標管理。黄色の列は手入力'],
+      ['タレント分け', 'B3で月を選ぶ。ティアごとのメンバー（売上順）'],
+      ['ティア推移', '全月のティア別人数と、タレントごとの月別ティア'],
+      ['タレントマスタ', '担当者・パーソナル枠・イベント・特例・本部長承認・デビュー月・メモを手入力（アプリからも保存可）'],
+      ['設定', '判定の基準・評価月・目標人数・プロモーター名と区分の対応'],
+      ['月次RAW／取込ログ', '取り込んだCSVの数値と取込の記録（直接編集しない）']],
+    [],
+    [['3. 毎月の流れ']],
+    [['タイミング', 'やること']],
+    [['月初', 'ミクチャ管理画面で前月の月次CSV（大元・ぷち）を出し、アプリの「CSVを取り込む」かメニュー「ミクチャ取込 → CSVをアップロードして取込」で入れる'],
+      ['取込後', '全シートが自動で更新される。サマリーの「月初の人数」「今月の新規目標」「担当」を入力'],
+      ['随時', '月の途中のCSVを入れると、その月は途中経過として表示（同じ月・同じ区分は新しいCSVで置き換え）'],
+      ['25日', 'ティア1候補を本部長へ報告し、承認されたらタレントマスタの「本部長承認」を○にする']],
+    [],
+    [['※ 週次KPI（週ごとの増分）は、ミクチャのCSVが月単位のため作っていません。']],
+  ];
+  sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).breakApart();
+  sheet.clear();
+  mxEnsureCols_(sheet, 4);
+  let r = 1;
+  blocks.forEach(function (b) {
+    if (!b.length) { r++; return; }
+    const w = Math.max.apply(null, b.map(function (x) { return x.length; }));
+    const vals = b.map(function (x) { return x.concat(new Array(w - x.length).fill('')); });
+    mxEnsureRows_(sheet, r + vals.length);
+    sheet.getRange(r, 1, vals.length, w).setValues(vals).setWrap(true).setVerticalAlignment('top');
+    const first = String(vals[0][0]);
+    if (vals.length === 1 && w === 1) {
+      if (r === 1) sheet.getRange(r, 1).setFontSize(16).setFontWeight('bold').setFontColor(MX_HEADER_BG).setWrap(false);
+      else if (/^\d\.|^判定の細則/.test(first)) sheet.getRange(r, 1).setFontSize(12).setFontWeight('bold').setWrap(false);
+      else sheet.getRange(r, 1).setFontSize(9).setFontColor('#666666').setWrap(false);
+    } else if (['ティア', '項目', 'シート', 'タイミング'].indexOf(first) >= 0 && vals.length === 1) {
+      mxHeader_(sheet.getRange(r, 1, 1, w));
+    } else {
+      mxBorder_(sheet.getRange(r, 1, vals.length, w));
+      if (first === 'ティア1') {
+        vals.forEach(function (v, i) { sheet.getRange(r + i, 1).setBackground(MX_TIER_COLOR[v[0]]).setFontWeight('bold'); });
+      }
+    }
+    r += vals.length;
+  });
+  sheet.setColumnWidth(1, 200);
+  sheet.setColumnWidth(2, 480);
+  sheet.setColumnWidth(3, 220);
+  sheet.setColumnWidth(4, 220);
 }
 
 // ===== アプリ（ウェブアプリの画面） ==========================================

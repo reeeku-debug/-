@@ -106,3 +106,32 @@ test('アプリの画面：判定の関数が埋め込まれ、スクリプト�
   const script = html.slice(html.lastIndexOf('<script>') + 8, html.lastIndexOf('</script>'));
   assert.doesNotThrow(() => new vm.Script(script));
 });
+
+test('取込から全シートの更新まで（スプレッドシートのモック）', () => {
+  const { makeContext } = require('./fake-sheets');
+  const { ctx, ss } = makeContext(fs, vm, path.join(__dirname, '..', 'MIXCH_ティア.gs'));
+  ctx.setupMixch();
+  const csv = (rows) => HEAD + '\n' + rows.map((r) => r.join(',')).join('\n');
+  const big = ['1', 'あ', 'アソビシステム株式会社(ASOBINEXT)', '成果型', '0', '30000', '70000', '20', '"2 days, 22:00:00"', '1'];
+  const small = ['2', 'い', 'アソビシステム株式会社-ASOBINEXT-', '成果型', '0', '1000', '2000', '3', '5:00:00', '0'];
+  const res = ctx.mxImportFiles([
+    { name: '8月.csv', text: csv([big, small]), month: 202608 },
+    { name: '9月.csv', text: csv([big.slice(0, 8).concat(['10:00:00', '0']), small]), month: 202609 },
+  ]);
+  assert.ok(res.every((m) => /：OK/.test(m)), res.join('\n'));
+  const names = ss.getSheets().map((s) => s.getName());
+  ['マニュアル', '売上ダッシュボード', '月別ティア', 'ティア判定', 'サマリー', 'タレント分け', 'ティア推移'].forEach((n) => assert.ok(names.includes(n), n));
+  const sum = ss.getSheetByName('サマリー');
+  assert.strictEqual(sum.getRange(4, 2, 1, 2).getValues()[0].join(), '大元,ぷち');
+  sum.getRange(8, 12).setValue(4); // ティア3 の新規目標
+  sum.getRange(8, 17).setValue('井上');
+  ctx.mxRefreshAll();
+  assert.strictEqual(sum.getRange(8, 8).getValue(), 'ティア3');
+  assert.strictEqual(sum.getRange(8, 9).getValue(), 1);
+  assert.strictEqual(sum.getRange(8, 12).getValue(), 4, '手入力の列は更新しても残る');
+  assert.strictEqual(sum.getRange(8, 17).getValue(), '井上');
+  const view = ss.getSheetByName('月別ティア');
+  assert.strictEqual(view.getRange(5, 6).getValue(), 1); // ティア3 の人数（9月）
+  const hist = ss.getSheetByName('ティア推移');
+  assert.strictEqual(hist.getRange(4, 2, 1, 2).getValues()[0].join(), '2026年8月,2026年9月');
+});
