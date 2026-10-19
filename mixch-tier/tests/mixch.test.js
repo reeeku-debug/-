@@ -135,3 +135,30 @@ test('取込から全シートの更新まで（スプレッドシートのモ�
   const hist = ss.getSheetByName('ティア推移');
   assert.strictEqual(hist.getRange(4, 2, 1, 2).getValues()[0].join(), '2026年8月,2026年9月');
 });
+
+test('正規データのスプシから取込：大元／ぷちの月別シートだけ読み、設定B13のURLを優先する', () => {
+  const { makeContext } = require('./fake-sheets');
+  const { ctx, ss } = makeContext(fs, vm, path.join(__dirname, '..', 'MIXCH_ティア.gs'));
+  ctx.setupMixch();
+  const src = { name: 'src', sheets: [] };
+  const add = (name, rows) => {
+    const s = ss.insertSheet('tmp-' + name);
+    s.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+    s.n = name;
+    ss.deleteSheet(s);
+    src.sheets.push(s);
+  };
+  const head = HEAD.split(',');
+  add('シート1', [['名前', 'メモ'], ['成川', '面談']]);
+  add('大元10月', [head, ['1', 'あ', 'アソビシステム株式会社(ASOBINEXT)', '成果型', '0', '30000', '70000', '20', '10:00:00', '1']]);
+  let opened = '';
+  ctx.SpreadsheetApp.openById = (id) => { opened = id; return { getName: () => 'ミクチャ追いかけ', getSheets: () => src.sheets }; };
+  ctx.mxImportFromCsvSheet();
+  assert.strictEqual(opened, '13eVnG02Iveq35Ibva8oQyJldzd54wOUcisBOchqaF_Q');
+  const log = ss.getSheetByName('取込ログ');
+  const names = log.getRange(2, 2, log.getLastRow() - 1, 1).getValues().map((r) => r[0]);
+  assert.strictEqual(names.join(), '大元10月');
+  ss.getSheetByName('設定').getRange('B13').setValue('https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/edit');
+  ctx.mxImportFromCsvSheet();
+  assert.strictEqual(opened, '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789');
+});

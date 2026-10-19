@@ -3,7 +3,7 @@
 // 新しい Google スプレッドシートの「拡張機能 → Apps Script」に貼り付けて使います。
 //   1. 貼り付けて保存し、関数「setupMixch」を実行（必要なシートを自動で作る・権限を許可）
 //   2. スプレッドシートを開き直すとメニュー「ミクチャ取込」が出る
-//   3. メニュー「ミクチャcsvのスプシから取り込む（大元・ぷちの全月）」で過去の月をまとめて入れる
+//   3. メニュー「ミクチャ追いかけのスプシから取り込む（大元・ぷちの全月）」で月ごとのデータをまとめて入れる
 //   4. 以降は「CSVをアップロードして取込…」またはアプリの「CSVを取り込む」で月次CSVを入れる
 //   5. アプリとして使うときは「デプロイ → 新しいデプロイ → ウェブアプリ」
 //      （次のユーザーとして実行：自分／アクセスできるユーザー：株式会社LIV 内の全員）
@@ -12,8 +12,11 @@
 
 // ===== 設定 ===============================================================
 
-/** 過去の月次CSVを貼ってある「ミクチャcsv」スプレッドシート（シート名：大元10月、ぷち9月 など） */
-const MX_CSV_SHEET_ID = '1W8aPF6tu8a6w0py5rBWq2kZSDJyrN9KHsQms2AvbVhE';
+/**
+ * 月次CSVを貼ってある正規データのスプレッドシート「ミクチャ追いかけ」（シート名：大元10月、ぷち10月 など）。
+ * 設定シートの B13 にURL（またはID）を入れると、そちらを優先する。
+ */
+const MX_CSV_SHEET_ID = '13eVnG02Iveq35Ibva8oQyJldzd54wOUcisBOchqaF_Q';
 
 const MX_SHEET = {
   settings: '設定',
@@ -51,7 +54,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('ミクチャ取込')
     .addItem('CSVをアップロードして取込…', 'mxShowUploadDialog')
-    .addItem('ミクチャcsvのスプシから取り込む（大元・ぷちの全月）', 'mxImportFromCsvSheet')
+    .addItem('ミクチャ追いかけのスプシから取り込む（大元・ぷちの全月）', 'mxImportFromCsvSheet')
     .addSeparator()
     .addItem('ティア判定・ダッシュボードを更新', 'mxRefreshAll')
     .addItem('はじめての設定（シートを作る）', 'setupMixch')
@@ -104,6 +107,10 @@ function mxEnsureSheets_(ss) {
     s.setColumnWidth(1, 300);
     s.setColumnWidth(2, 160);
     s.setColumnWidth(3, 460);
+  }
+  if (!String(s.getRange('A13').getValue())) {
+    s.getRange('A13:C13').setValues([['取込元のスプシ（URLかID）', '', '空欄なら「ミクチャ追いかけ」。メニュー「…スプシから取り込む」で読むスプレッドシート']]);
+    s.getRange('B13').setBackground('#FFF2CC').setFontColor('#1155CC');
   }
   s = ss.getSheetByName(MX_SHEET.master);
   if (!s) {
@@ -262,16 +269,17 @@ function mxUpsertMaster_(ss, recs) {
   }
 }
 
-/** 「ミクチャcsv」スプレッドシートの「大元10月」「ぷち9月」…のシートをまとめて取り込む */
+/** 取込元のスプレッドシート（既定：ミクチャ追いかけ）の「大元10月」「ぷち10月」…のシートをまとめて取り込む */
 function mxImportFromCsvSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   mxEnsureSheets_(ss);
-  const src = SpreadsheetApp.openById(MX_CSV_SHEET_ID);
+  const src = SpreadsheetApp.openById(mxCsvSheetId_(ss));
   const now = new Date();
   const messages = [];
   mxWithLock_(function () {
     src.getSheets().forEach(function (s) {
-      const m = s.getName().match(/(\d{1,2})\s*月/);
+      // 「大元10月」「ぷち10月」のような月別のシートだけ（メモ用の「シート1」などは読まない）
+      const m = /大元|ぷち/.test(s.getName()) ? s.getName().match(/(\d{1,2})\s*月/) : null;
       if (!m || s.getLastRow() < 2) return;
       const mon = Number(m[1]);
       const month = (mon > now.getMonth() + 1 ? now.getFullYear() - 1 : now.getFullYear()) * 100 + mon;
@@ -285,7 +293,15 @@ function mxImportFromCsvSheet() {
     });
     mxRefreshAll_(ss);
   });
-  ss.toast(messages.join('\n') || '取り込めるシートがありませんでした', 'ミクチャcsv から取込', 10);
+  ss.toast(messages.join('\n') || '取り込めるシートがありませんでした', src.getName() + ' から取込', 10);
+}
+
+/** 取込元のスプレッドシートID：設定シート B13（URLでもIDでも可）→ なければ MX_CSV_SHEET_ID */
+function mxCsvSheetId_(ss) {
+  const sheet = ss.getSheetByName(MX_SHEET.settings);
+  const v = sheet ? String(sheet.getRange('B13').getValue() || '').trim() : '';
+  const m = v.match(/\/d\/([a-zA-Z0-9_-]{20,})/) || v.match(/^([a-zA-Z0-9_-]{20,})$/);
+  return m ? m[1] : MX_CSV_SHEET_ID;
 }
 
 function mxLog_(ss, fileName, month, rows, result) {
