@@ -552,6 +552,19 @@ function tkAskGeminiModel_(url, insta, profile, model) {
     return r;
   };
   let res = ask(gemini);
+  // 429（回数の上限）：1分あたりの上限なら、Gemini が指定する秒数だけ待って1回だけやり直す。無料枠がないモデルなら分かるように伝える
+  if (res.getResponseCode() === 429) {
+    const text = res.getContentText();
+    if (/limit:\s*0\b/.test(text)) {
+      throw new Error('Gemini 429：このモデル（' + model + '）は無料枠では使えません。設定シートB7を無料枠のあるモデル（aistudio.google.com/usage で確認）にするか、お支払い設定をしてください');
+    }
+    const wait = text.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
+    const sec = wait ? Math.ceil(Number(wait[1])) + 1 : 30;
+    if (sec <= 60) {
+      Utilities.sleep(sec * 1000);
+      res = ask(gemini);
+    }
+  }
   if (/^AQ\./.test(key) && [400, 401, 403].indexOf(res.getResponseCode()) >= 0 && /api key|API_KEY|credential|authentic/i.test(res.getContentText())) {
     res = ask(vertex);
   }
@@ -560,6 +573,9 @@ function tkAskGeminiModel_(url, insta, profile, model) {
   if (code !== 200) {
     let msg = body;
     try { msg = JSON.parse(body).error.message; } catch (e) { /* そのまま */ }
+    if (code === 429) {
+      throw new Error('Gemini 429：使える回数の上限です。1日の上限なら明日、1分の上限なら数分おいて、もう一度メニューを押してください（' + String(msg).slice(0, 120) + '）');
+    }
     throw new Error('Gemini ' + code + '：' + String(msg).slice(0, 300));
   }
   return tkParseGemini_(body);

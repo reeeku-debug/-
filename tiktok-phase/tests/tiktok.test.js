@@ -169,6 +169,19 @@ test('モデルが古くて使えないときは、すすめられたモデル�
   assert.deepStrictEqual(used, ['gemini-2.5-flash', 'gemini-3.8-flash']);
 });
 
+test('429：指定の秒数だけ待ってやり直す。無料枠がないモデルはそう伝える', () => {
+  let n = 0;
+  const slept = [];
+  const ok = { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"posts_30d": 3, "avg_views_30d": 1000, "confidence": "低", "note": "x"}' }] } }] }) };
+  const busy = { getResponseCode: () => 429, getContentText: () => '{"error":{"message":"You exceeded your current quota","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"12s"}]}}' };
+  const { ctx } = setup({ UrlFetchApp: { fetch: () => (++n === 1 ? busy : ok) } });
+  ctx.Utilities.sleep = (ms) => slept.push(ms);
+  assert.strictEqual(ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-3.8-flash').posts30, 3);
+  assert.deepStrictEqual(slept, [13000]);
+  ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 429, getContentText: () => '{"error":{"message":"Quota exceeded for metric: generate_content_free_tier_requests, limit: 0, model: gemini-3.8-pro"}}' }) };
+  assert.throws(() => ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-3.8-pro'), /無料枠では使えません/);
+});
+
 test('アプリの画面：判定の関数が埋め込まれ、スクリプトとして読める', () => {
   let html = '';
   const out = { setTitle() { return out; }, addMetaTag() { return out; } };
