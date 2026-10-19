@@ -1,0 +1,518 @@
+<title>TikTok フェーズ判定</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Kaku+Gothic+New:wght@700;900&family=Roboto+Mono:wght@500&display=swap">
+<style>
+/* Layout: 月タブ → ティア人数の帯 → 絞り込み → T1〜未評価の6列ボード（狭い画面では縦積み）。人を押すと右から詳細パネル */
+:root {
+  --bg: #f3f5f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f7;
+  --fg: #172033;
+  --muted: #5d6880;
+  --line: #dde2ec;
+  --accent: #1f4e9a;
+  --accent-fg: #ffffff;
+  --accent-soft: #e3ebf7;
+  --up: #12805c;
+  --down: #c23a3a;
+  --warn-bg: #fff4dc;
+  --warn-fg: #7a5200;
+  --t1: #f2c94c; --t1-bg: #fdf4d6; --t1-fg: #6b4e00;
+  --t2: #3fae7a; --t2-bg: #e1f4ea; --t2-fg: #135c3a;
+  --t3: #4a8fe0; --t3-bg: #e2eefc; --t3-fg: #1b4f8f;
+  --t4: #9b6fd6; --t4-bg: #efe6fa; --t4-fg: #5a3593;
+  --t5: #9aa3b5; --t5-bg: #eef0f4; --t5-fg: #4a5367;
+  --tu: #c4cad6; --tu-bg: #f7f8fa; --tu-fg: #5d6880;
+  --shadow: 0 1px 2px rgba(23, 32, 51, .06), 0 4px 16px rgba(23, 32, 51, .06);
+  --f-display: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --f-body: "BIZ UDPGothic", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+  --f-num: "Roboto Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11151f; --surface: #1a2030; --surface-2: #222a3d; --fg: #e7ebf3; --muted: #9aa5bd; --line: #2e3850;
+    --accent: #8fb3f0; --accent-fg: #11151f; --accent-soft: #1f2d4a; --up: #52c999; --down: #ff8080;
+    --warn-bg: #3a2f14; --warn-fg: #f3d58a;
+    --t1-bg: #3a3112; --t1-fg: #f6dc85; --t2-bg: #163527; --t2-fg: #8fdcb5; --t3-bg: #172c48; --t3-fg: #9cc6f6;
+    --t4-bg: #2c2042; --t4-fg: #ccb2f2; --t5-bg: #252b38; --t5-fg: #b6bdcc; --tu-bg: #1d2331; --tu-fg: #9aa5bd;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11151f; --surface: #1a2030; --surface-2: #222a3d; --fg: #e7ebf3; --muted: #9aa5bd; --line: #2e3850;
+  --accent: #8fb3f0; --accent-fg: #11151f; --accent-soft: #1f2d4a; --up: #52c999; --down: #ff8080;
+  --warn-bg: #3a2f14; --warn-fg: #f3d58a;
+  --t1-bg: #3a3112; --t1-fg: #f6dc85; --t2-bg: #163527; --t2-fg: #8fdcb5; --t3-bg: #172c48; --t3-fg: #9cc6f6;
+  --t4-bg: #2c2042; --t4-fg: #ccb2f2; --t5-bg: #252b38; --t5-fg: #b6bdcc; --tu-bg: #1d2331; --tu-fg: #9aa5bd;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+img { max-width: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 14px; line-height: 1.55; }
+.wrap { max-width: 1480px; margin: 0 auto; padding-block: 24px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 16px; }
+h1, h2, h3 { font-family: var(--f-display); margin: 0; text-wrap: balance; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; justify-content: space-between; }
+.title { display: grid; gap: 4px; min-width: 0; }
+.title h1 { font-size: 26px; font-weight: 900; letter-spacing: .01em; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.title h1 small { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: .12em; }
+.title p { margin: 0; color: var(--muted); font-size: 13px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 9px 16px; font-weight: 700; font-size: 13px; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.notice { background: var(--warn-bg); color: var(--warn-fg); border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+
+/* month tabs */
+.tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.tab { flex: none; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 14px; font-size: 13px; white-space: nowrap; }
+.tab .partial { font-size: 11px; color: var(--warn-fg); background: var(--warn-bg); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+.tab[aria-selected="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 700; }
+.tab[aria-selected="true"] .partial { background: transparent; color: inherit; }
+
+/* tier strip */
+.strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+.cell { padding: 12px 14px; display: grid; gap: 2px; border-right: 1px solid var(--line); }
+.cell:last-child { border-right: 0; }
+.cell .lbl { font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.cell .val { font-family: var(--f-num); font-size: 26px; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.cell .val small { font-family: var(--f-body); font-size: 12px; color: var(--muted); margin-left: 2px; }
+.cell .delta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.delta .up { color: var(--up); font-weight: 700; } .delta .down { color: var(--down); font-weight: 700; }
+.dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.moves { font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.moves b { color: var(--fg); font-variant-numeric: tabular-nums; }
+
+/* filters */
+.filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.filters input, .filters select { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.filters input { width: min(260px, 100%); }
+.filters .spacer { flex: 1; }
+.filters .meta { font-size: 12px; color: var(--muted); }
+
+/* board */
+.board { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.col { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; display: grid; grid-template-rows: auto auto 1fr; min-width: 0; overflow: hidden; }
+.col-head { padding: 10px 12px 6px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-top: 4px solid var(--c); }
+.col-head h2 { font-size: 18px; font-weight: 900; }
+.col-head .count { font-family: var(--f-num); font-size: 13px; color: var(--muted); }
+.col-desc { padding: 0 12px 8px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); line-height: 1.45; }
+.list { list-style: none; margin: 0; padding: 4px; max-height: 64vh; overflow-y: auto; display: grid; gap: 2px; align-content: start; }
+.person { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 2px 6px; align-items: center; width: 100%; text-align: left; border: 0; background: transparent; border-radius: 6px; padding: 6px; }
+.person:hover { background: var(--surface-2); }
+.person .no { font-family: var(--f-num); font-size: 11px; color: var(--muted); text-align: right; }
+.person .nm { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person .sales { grid-column: 2; font-family: var(--f-num); font-size: 11px; color: var(--muted); }
+.person .chip { grid-row: 1 / span 2; grid-column: 3; }
+.chip { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 5px; white-space: nowrap; background: var(--surface-2); color: var(--muted); }
+.chip.up { background: color-mix(in srgb, var(--up) 14%, transparent); color: var(--up); }
+.chip.down { background: color-mix(in srgb, var(--down) 14%, transparent); color: var(--down); }
+.chip.new { background: var(--accent-soft); color: var(--accent); }
+.empty-col { padding: 16px 12px; color: var(--muted); font-size: 12px; }
+
+.tier-T1 { --c: var(--t1); --cb: var(--t1-bg); --cf: var(--t1-fg); }
+.tier-T2 { --c: var(--t2); --cb: var(--t2-bg); --cf: var(--t2-fg); }
+.tier-T3 { --c: var(--t3); --cb: var(--t3-bg); --cf: var(--t3-fg); }
+.tier-T4 { --c: var(--t4); --cb: var(--t4-bg); --cf: var(--t4-fg); }
+.tier-T5 { --c: var(--t5); --cb: var(--t5-bg); --cf: var(--t5-fg); }
+.tier-U  { --c: var(--tu); --cb: var(--tu-bg); --cf: var(--tu-fg); }
+.badge { display: inline-block; border-radius: 5px; padding: 1px 7px; font-weight: 700; font-size: 12px; background: var(--cb); color: var(--cf); }
+
+/* empty state */
+.empty { background: var(--surface); border: 1px dashed var(--line); border-radius: 12px; padding: 48px 24px; text-align: center; display: grid; gap: 8px; justify-items: center; }
+.empty h2 { font-size: 18px; }
+.empty p { margin: 0; color: var(--muted); max-width: 46ch; }
+
+/* drawer */
+.scrim { position: fixed; inset: 0; background: rgba(10, 14, 24, .35); z-index: 20; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(460px, 100%); background: var(--surface); z-index: 21; box-shadow: -8px 0 32px rgba(0, 0, 0, .2); display: grid; grid-template-rows: auto 1fr; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); padding-right: env(safe-area-inset-right, 0px); }
+.drawer-head { padding: 16px 20px 12px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
+.drawer-head .row { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.drawer-head h2 { font-size: 18px; word-break: break-all; }
+.drawer-head .sub { font-size: 12px; color: var(--muted); word-break: break-all; }
+.x { border: 0; background: var(--surface-2); border-radius: 8px; width: 32px; height: 32px; font-size: 18px; line-height: 1; flex: none; }
+.drawer-body { overflow-y: auto; padding: 16px 20px 32px; display: flex; flex-direction: column; gap: 18px; min-height: 0; }
+.drawer-body > * { flex-shrink: 0; }
+.kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.kv div { background: var(--surface); padding: 8px 10px; display: grid; gap: 2px; }
+.kv dt { font-size: 11px; color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--f-num); font-variant-numeric: tabular-nums; font-size: 14px; }
+.kv dd.ok { color: var(--up); } .kv dd.ng { color: var(--down); }
+.reason { background: var(--cb); color: var(--cf); border-radius: 10px; padding: 10px 12px; display: grid; gap: 2px; font-size: 13px; }
+.reason b { font-size: 12px; opacity: .8; }
+.section-title { font-size: 13px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+.hist { width: 100%; border-collapse: collapse; font-size: 12px; }
+.hist th, .hist td { padding: 5px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.hist th:first-child, .hist td:first-child { text-align: left; }
+.hist th { color: var(--muted); font-weight: 700; font-size: 11px; }
+.hist td { font-family: var(--f-num); font-variant-numeric: tabular-nums; }
+.hist tr.sel td { background: var(--accent-soft); }
+.table-scroll { overflow-x: auto; }
+.form { display: grid; gap: 8px; }
+.form label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+.form input, .form textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%; }
+.form textarea { min-height: 72px; resize: vertical; }
+.saved { font-size: 12px; color: var(--up); }
+
+/* dialog */
+.modal { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 16px; background: rgba(10, 14, 24, .4); }
+.dialog { background: var(--surface); border-radius: 14px; width: min(620px, 100%); max-height: calc(100% - 32px); overflow-y: auto; box-shadow: 0 12px 48px rgba(0, 0, 0, .3); padding: 20px; display: grid; gap: 14px; }
+.dialog h2 { font-size: 18px; }
+.dialog p { margin: 0; color: var(--muted); font-size: 13px; }
+.drop { border: 2px dashed var(--line); border-radius: 12px; padding: 28px 16px; text-align: center; color: var(--muted); display: grid; gap: 8px; justify-items: center; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.files { display: grid; gap: 8px; }
+.file { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; font-size: 13px; }
+.file .name { font-weight: 700; word-break: break-all; }
+.file .info { color: var(--muted); font-size: 12px; }
+.file .err { color: var(--down); font-size: 12px; }
+.file .warn { color: var(--warn-fg); background: var(--warn-bg); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+.file .ok { color: var(--up); font-size: 12px; font-weight: 700; }
+.file input[type="month"] { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 4px 8px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.check { display: flex !important; align-items: center; gap: 8px; grid-auto-flow: column; }
+.check input { width: auto; }
+.footer { color: var(--muted); font-size: 12px; display: grid; gap: 4px; }
+.footer p { margin: 0; }
+
+@media (max-width: 1100px) {
+  .board { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cell { border-bottom: 1px solid var(--line); }
+}
+@media (max-width: 640px) {
+  .board { grid-template-columns: minmax(0, 1fr); }
+  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .list { max-height: 420px; }
+  .title h1 { font-size: 22px; }
+  .grid2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .drawer { animation: slide .18s ease-out; }
+  @keyframes slide { from { transform: translateX(24px); opacity: .6; } }
+}
+
+.ph-4 { --c: #e6b800; } .ph-3 { --c: #34a853; } .ph-3c { --c: #f2994a; } .ph-2 { --c: #c2185b; } .ph-1 { --c: #5b7fbf; } .ph-x { --c: #9aa5bd; } .ph-u { --c: #c6ccd8; }
+.board { grid-template-columns: repeat(7, minmax(180px, 1fr)); }
+.views { display: flex; gap: 6px; }
+.view-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 7px 16px; font-weight: 700; font-size: 13px; }
+.view-btn[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.target { font-size: 11px; color: var(--muted); }
+.table-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; min-width: 0; }
+.table-card h3 { font-size: 14px; }
+.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data th, .data td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.data th:first-child, .data td:first-child { text-align: left; }
+.data th { font-size: 11px; color: var(--muted); font-weight: 700; }
+.form select { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; font-size: 13px; width: 100%; }
+.filters label.meta { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.conf { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: var(--surface-2); color: var(--muted); }
+.ai-note { font-size: 12px; color: var(--muted); line-height: 1.6; }
+a.ext { color: var(--accent); word-break: break-all; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="title">
+      <h1>SNSフェーズ判定 <small>TikTok</small></h1>
+      <p>TikTokのアカウントURLを登録すると、AI（Gemini）が直近30日の投稿数・平均再生を調べ、SNS_フェーズ表と同じ基準でフェーズ分けします。</p>
+    </div>
+    <div class="actions">
+      <div class="views" role="tablist" aria-label="表示">
+        <button class="view-btn" id="v-board" type="button" aria-selected="true">フェーズ</button>
+        <button class="view-btn" id="v-trend" type="button" aria-selected="false">推移</button>
+      </div>
+      <button class="btn" id="btn-export" type="button" disabled>CSV書き出し</button>
+      <button class="btn primary" id="btn-add" type="button">アカウントを追加</button>
+    </div>
+  </header>
+
+  <div class="notice" id="notice" hidden></div>
+
+  <main id="main">
+    <section class="empty" id="empty">
+      <h2 id="empty-title">データを読み込んでいます…</h2>
+      <p id="empty-text">登録したアカウントが、フェーズごとに並びます。</p>
+    </section>
+
+    <div id="board-view" hidden style="display:grid;gap:14px">
+      <section class="strip" id="strip" aria-label="フェーズ別の人数" style="grid-template-columns:repeat(4,minmax(0,1fr))"></section>
+      <div class="filters">
+        <input id="q" type="search" placeholder="名前・URLで探す" aria-label="名前・URLで探す">
+        <select id="f-owner" aria-label="担当者"><option value="">担当者：すべて</option></select>
+        <span class="spacer"></span>
+        <span class="meta" id="meta"></span>
+      </div>
+      <section class="board" id="board" aria-label="フェーズ別メンバー"></section>
+    </div>
+
+    <div id="trend-view" hidden style="display:grid;gap:14px">
+      <section class="table-card"><h3>月別のフェーズ人数（判定履歴）</h3><div class="table-scroll" id="trend-table"></div></section>
+      <section class="table-card"><h3>担当者別（現在）</h3><div class="table-scroll" id="owner-table"></div></section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p id="criteria-line"></p>
+    <p>フェーズはAIが調べた数字（手入力があればそちらを優先）から決めます。前月＝判定履歴の前月のフェーズ。<a id="sheet-link" href="#" target="_blank" rel="noopener" hidden>スプレッドシートを開く</a></p>
+  </footer>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="アカウントの詳細"></aside>
+
+<div class="modal" id="add-modal" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="add-title">
+    <h2 id="add-title">アカウントを追加</h2>
+    <p>TikTokのURL（https://www.tiktok.com/@ユーザー名）を入れてください。「追加してAIで調べる」を押すと、そのままフェーズを判定します（10〜20秒）。</p>
+    <form class="form" id="add-form">
+      <div class="grid2">
+        <label>名前<input id="a-name" required></label>
+        <label>担当者<input id="a-owner"></label>
+      </div>
+      <label>TikTokのURL<input id="a-tiktok" required placeholder="https://www.tiktok.com/@..."></label>
+      <label>InstagramのURL（任意）<input id="a-insta" placeholder="https://www.instagram.com/..."></label>
+      <div class="dialog-actions">
+        <span class="saved" id="add-msg"></span>
+        <button class="btn" id="add-close" type="button">閉じる</button>
+        <button class="btn primary" id="add-go" type="submit">追加してAIで調べる</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  /*__TK_SHARED__*/
+
+  const CLS = { フェーズ4: 'ph-4', フェーズ3: 'ph-3', フェーズ3候補: 'ph-3c', フェーズ2: 'ph-2', フェーズ1: 'ph-1', フェーズ外: 'ph-x', 未判定: 'ph-u' };
+  const state = { rows: [], prev: {}, history: [], cfg: null, month: null, hasKey: true, list: [], view: 'board', open: null, loaded: false };
+  try { const v = localStorage.getItem('tk-view'); if (v) state.view = v; } catch (e) {}
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs, children) => {
+    const n = document.createElement(tag);
+    if (attrs) for (const k in attrs) {
+      if (k === 'class') n.className = attrs[k];
+      else if (k === 'text') n.textContent = attrs[k];
+      else if (k.startsWith('on')) n.addEventListener(k.slice(2), attrs[k]);
+      else if (attrs[k] !== false && attrs[k] != null) n.setAttribute(k, attrs[k] === true ? '' : attrs[k]);
+    }
+    (children || []).forEach((c) => c != null && n.append(c));
+    return n;
+  };
+  const num = (n) => (n === null || n === '' || n === undefined ? '—' : Math.round(n).toLocaleString('ja-JP'));
+  const errText = (e) => (e && e.message) || String(e);
+  const showNotice = (msg) => { $('notice').textContent = msg || ''; $('notice').hidden = !msg; };
+  const gs = (fn, ...args) => new Promise((ok, ng) => google.script.run.withSuccessHandler(ok).withFailureHandler(ng)[fn](...args));
+
+  function build() {
+    state.list = state.rows.map((r) => {
+      const j = tkJudge(r, state.cfg);
+      const prev = state.prev[tkNormalizeUrl(r.tiktok)] || '';
+      return Object.assign({}, r, j, { prevPhase: prev, change: tkChange(j.phase, prev) });
+    });
+  }
+
+  function render() {
+    const c = state.cfg || { p4: 200000, p3: 100000, weekly: 3 };
+    $('criteria-line').textContent = '基準：フェーズ4＝平均再生' + c.p4 / 10000 + '万回以上、フェーズ3＝' + c.p3 / 10000 + '万回以上 or 有償案件＋本部長承認、フェーズ2＝週' + c.weekly + '本以上投稿、フェーズ1＝週' + c.weekly + '本未満';
+    $('v-board').setAttribute('aria-selected', String(state.view === 'board'));
+    $('v-trend').setAttribute('aria-selected', String(state.view === 'trend'));
+    if (state.loaded && !state.hasKey) showNotice('Gemini APIキーが未設定です。スプレッドシートのメニュー「TikTokフェーズ → Gemini APIキーを設定」で入れてください。');
+    if (!state.rows.length) {
+      $('board-view').hidden = true; $('trend-view').hidden = true; $('empty').hidden = false; $('btn-export').disabled = true;
+      $('empty-title').textContent = state.loaded ? 'まだアカウントがありません' : 'データを読み込んでいます…';
+      $('empty-text').textContent = state.loaded ? '右上の「アカウントを追加」からTikTokのURLを登録してください。' : '登録したアカウントが、フェーズごとに並びます。';
+      return;
+    }
+    build();
+    $('empty').hidden = true; $('btn-export').disabled = false;
+    $('board-view').hidden = state.view !== 'board';
+    $('trend-view').hidden = state.view !== 'trend';
+    if (state.view === 'board') { renderStrip(); renderFilters(); renderBoard(); } else renderTrend();
+    if (state.open) renderDrawer();
+  }
+
+  function renderStrip() {
+    const count = {}, prevCount = {};
+    state.list.forEach((x) => (count[x.phase] = (count[x.phase] || 0) + 1));
+    Object.values(state.prev).forEach((t) => (prevCount[t] = (prevCount[t] || 0) + 1));
+    const hasPrev = Object.keys(state.prev).length > 0;
+    const targets = state.cfg.targets || {};
+    const cells = ['フェーズ4', 'フェーズ3', 'フェーズ2', 'フェーズ1'].map((t) => {
+      const n = (count[t] || 0) + (t === 'フェーズ3' ? count['フェーズ3候補'] || 0 : 0);
+      const p = (prevCount[t] || 0) + (t === 'フェーズ3' ? prevCount['フェーズ3候補'] || 0 : 0);
+      const d = n - p;
+      return el('div', { class: 'cell ' + CLS[t] }, [
+        el('span', { class: 'lbl' }, [el('span', { class: 'dot', style: 'background:var(--c)' }), t + '（' + TK_PHASE_LABEL[t] + '）']),
+        el('span', { class: 'val' }, [String(n), el('small', { text: '人' })]),
+        el('span', { class: 'delta' }, hasPrev ? ['前月 ' + p + '人 ', el('span', { class: d > 0 ? 'up' : d < 0 ? 'down' : '', text: d === 0 ? '±0' : (d > 0 ? '+' : '') + d })] : ['前月 —']),
+        t === 'フェーズ3' && count['フェーズ3候補'] ? el('span', { class: 'target', text: 'うち承認待ち ' + count['フェーズ3候補'] + '人' }) : null,
+        targets[t] ? el('span', { class: 'target', text: '目標 ' + targets[t] + '人' + (n >= targets[t] ? '（達成）' : '（あと' + (targets[t] - n) + '人）') }) : null,
+      ]);
+    });
+    $('strip').replaceChildren(...cells);
+  }
+
+  function renderFilters() {
+    const sel = $('f-owner');
+    const cur = sel.value;
+    const owners = Array.from(new Set(state.list.map((x) => String(x.owner || '').trim()).filter(Boolean))).sort();
+    sel.replaceChildren(el('option', { value: '', text: '担当者：すべて' }), ...owners.map((o) => el('option', { value: o, text: o })));
+    sel.value = owners.indexOf(cur) >= 0 ? cur : '';
+  }
+
+  function renderBoard() {
+    const q = $('q').value.trim().toLowerCase(), o = $('f-owner').value;
+    const list = state.list.filter((x) => (!q || String(x.name).toLowerCase().includes(q) || String(x.tiktok).toLowerCase().includes(q)) && (!o || String(x.owner).trim() === o));
+    $('meta').textContent = list.length + '人 / ' + state.list.length + '人';
+    $('board').replaceChildren(...TK_PHASES.map((t) => {
+      const people = list.filter((x) => x.phase === t).sort((a, b) => (b.avg || 0) - (a.avg || 0));
+      return el('section', { class: 'col ' + CLS[t] }, [
+        el('div', { class: 'col-head' }, [el('h2', { text: t }), el('span', { class: 'count', text: people.length + '人' })]),
+        el('div', { class: 'col-desc', text: TK_PHASE_LABEL[t] }),
+        people.length ? el('ul', { class: 'list' }, people.map((x, i) => el('li', {}, [el('button', { class: 'person', type: 'button', onclick: () => { state.open = x.row; renderDrawer(); } }, [
+          el('span', { class: 'no', text: String(i + 1) }),
+          el('span', { class: 'nm', text: x.name || x.tiktok, title: x.name }),
+          el('span', { class: 'sales', text: (x.avg !== null ? '平均' + num(x.avg) + '回' : '再生—') + '・' + (x.weekly !== null ? '週' + x.weekly + '本' : '投稿—') + (x.owner ? '・' + x.owner : '') }),
+          x.change === '昇格' ? el('span', { class: 'chip up', text: x.prevPhase + '→' }) : x.change === '降格' ? el('span', { class: 'chip down', text: x.prevPhase + '→' }) : el('span'),
+        ])]))) : el('div', { class: 'empty-col', text: '該当者なし' }),
+      ]);
+    }));
+  }
+
+  function table(head, rows) {
+    return el('table', { class: 'data' }, [el('thead', {}, [el('tr', {}, head.map((h) => el('th', { text: h })))]),
+      el('tbody', {}, rows.map((r) => el('tr', {}, r.map((v) => el('td', { text: String(v) })))))]);
+  }
+  function renderTrend() {
+    const months = Array.from(new Set(state.history.map((h) => h[0]))).sort((a, b) => a - b);
+    $('trend-table').replaceChildren(months.length ? table(['月'].concat(TK_PHASES, ['合計']), months.map((m) => {
+      const hs = state.history.filter((h) => h[0] === m);
+      return [tkMonthLabel(m) + (m === state.month ? '（今月）' : '')].concat(TK_PHASES.map((t) => hs.filter((h) => h[2] === t).length), [hs.length]);
+    })) : el('p', { class: 'meta', text: 'AIで調べると、月ごとに記録されます。' }));
+    const owners = Array.from(new Set(state.list.map((x) => String(x.owner || '').trim() || '（未設定）')));
+    $('owner-table').replaceChildren(table(['担当者'].concat(TK_PHASES, ['合計']), owners.map((o) => {
+      const mine = state.list.filter((x) => (String(x.owner || '').trim() || '（未設定）') === o);
+      return [o].concat(TK_PHASES.map((t) => mine.filter((x) => x.phase === t).length), [mine.length]);
+    })));
+  }
+
+  // ===== 詳細 =====
+  function closeDrawer() { state.open = null; $('drawer').hidden = true; $('scrim').hidden = true; }
+  function renderDrawer() {
+    const x = state.list.find((p) => p.row === state.open);
+    if (!x) { closeDrawer(); return; }
+    const kv = (k, v) => el('div', {}, [el('dt', { text: k }), el('dd', { text: v })]);
+    const sel = (opts, v) => { const s = el('select', {}, opts.map((o) => el('option', { value: o, text: o || '（空欄）' }))); s.value = v || ''; return s; };
+    const f = {
+      name: el('input', { value: x.name || '' }), owner: el('input', { value: x.owner || '' }), tiktok: el('input', { value: x.tiktok || '' }), insta: el('input', { value: x.insta || '' }),
+      paid: sel(['', '○'], x.paid), approve: sel(['', '○'], x.approve), excluded: sel(['', '○'], x.excluded),
+      avgManual: el('input', { type: 'number', min: '0', value: x.avgManual === '' ? '' : x.avgManual, placeholder: 'AIの値を使う' }),
+      postsManual: el('input', { type: 'number', min: '0', value: x.postsManual === '' ? '' : x.postsManual, placeholder: 'AIの値を使う' }),
+      memo: el('textarea'),
+    };
+    f.memo.value = x.memo || '';
+    const msg = el('span', { class: 'saved' });
+    const save = el('button', { class: 'btn primary', type: 'submit', text: '保存' });
+    const aiBtn = el('button', { class: 'btn', type: 'button', text: 'AIで調べ直す' });
+    aiBtn.addEventListener('click', async () => {
+      aiBtn.disabled = true; aiBtn.textContent = '調べています…（10〜20秒）';
+      try { await gs('tkWebJudge', x.row, x.tiktok); await reload(); } catch (e) { showNotice('調べられませんでした：' + errText(e)); }
+      aiBtn.disabled = false; aiBtn.textContent = 'AIで調べ直す';
+    });
+    const d = $('drawer');
+    d.className = 'drawer ' + CLS[x.phase];
+    d.replaceChildren(
+      el('div', { class: 'drawer-head' }, [
+        el('div', { class: 'row' }, [el('h2', { text: x.name || x.tiktok }), el('button', { class: 'x', type: 'button', 'aria-label': '閉じる', onclick: closeDrawer, text: '×' })]),
+        el('div', { class: 'sub' }, [el('span', { class: 'badge', text: x.phase }), '　' + (x.prevPhase ? '前月 ' + x.prevPhase : '前月の記録なし') + (x.owner ? '・担当 ' + x.owner : '')]),
+      ]),
+      el('div', { class: 'drawer-body' }, [
+        el('div', { class: 'reason' }, [el('b', { text: '判定理由' }), x.reason, el('b', { text: '次のフェーズまで' }), x.next]),
+        el('dl', { class: 'kv' }, [kv('平均再生（判定に使用）', num(x.avg) + '回'), kv('週あたり投稿', x.weekly === null ? '—' : x.weekly + '本'),
+          kv('平均再生（AI）', num(x.avgAi === '' ? null : x.avgAi) + '回'), kv('投稿数／30日（AI）', x.postsAi === '' ? '—' : x.postsAi + '本'),
+          kv('フォロワー', num(x.followers === '' ? null : x.followers)), kv('いいね総数', num(x.likes === '' ? null : x.likes)),
+          kv('最終投稿日', x.lastPost || '—'), kv('最終取得', x.fetchedAt || '—')]),
+        el('div', { class: 'ai-note' }, [el('span', { class: 'conf', text: 'AIの確度 ' + (x.confidence || '—') }), '　' + (x.aiNote || 'まだAIで調べていません'), x.status && String(x.status).indexOf('OK') !== 0 ? el('div', { text: x.status, style: 'color:var(--down)' }) : null]),
+        el('div', { class: 'dialog-actions' }, [el('a', { class: 'ext', href: tkNormalizeUrl(x.tiktok), target: '_blank', rel: 'noopener', text: 'TikTokを開く' }), aiBtn]),
+        el('div', { class: 'section-title', text: '手入力（スプレッドシートに保存）' }),
+        el('form', { class: 'form', onsubmit: async (e) => {
+          e.preventDefault();
+          save.disabled = true; msg.style.color = ''; msg.textContent = '保存中…';
+          const body = {}; Object.keys(f).forEach((k) => (body[k] = f[k].value.trim ? f[k].value.trim() : f[k].value));
+          try { await gs('tkWebSave', x.row, x.tiktok, body); await reload(); msg.textContent = '保存しました'; }
+          catch (err) { msg.style.color = 'var(--down)'; msg.textContent = '保存できませんでした：' + errText(err); }
+          finally { save.disabled = false; }
+        } }, [
+          el('div', { class: 'grid2' }, [el('label', {}, ['名前', f.name]), el('label', {}, ['担当者', f.owner])]),
+          el('label', {}, ['TikTokのURL', f.tiktok]), el('label', {}, ['InstagramのURL（任意）', f.insta]),
+          el('div', { class: 'grid2' }, [el('label', {}, ['有償案件（獲得済み）', f.paid]), el('label', {}, ['本部長承認', f.approve]),
+            el('label', {}, ['フェーズ外（LTV枠）', f.excluded]), el('span'),
+            el('label', {}, ['平均再生（手入力・優先）', f.avgManual]), el('label', {}, ['投稿数／30日（手入力・優先）', f.postsManual])]),
+          el('label', {}, ['メモ', f.memo]),
+          el('div', { class: 'dialog-actions' }, [msg, save]),
+        ]),
+      ]),
+    );
+    d.hidden = false; $('scrim').hidden = false;
+  }
+
+  // ===== 追加・書き出し =====
+  async function addAccount(e) {
+    e.preventDefault();
+    const body = { name: $('a-name').value.trim(), owner: $('a-owner').value.trim(), tiktok: $('a-tiktok').value.trim(), insta: $('a-insta').value.trim() };
+    $('add-go').disabled = true; $('add-msg').style.color = ''; $('add-msg').textContent = '追加しています…';
+    try {
+      const row = await gs('tkWebAdd', body);
+      $('add-msg').textContent = 'AIで調べています…（10〜20秒）';
+      try { await gs('tkWebJudge', row, tkNormalizeUrl(body.tiktok)); } catch (err) { showNotice('追加しましたが、AIで調べられませんでした：' + errText(err)); }
+      await reload();
+      $('add-modal').hidden = true; $('add-form').reset(); state.open = row; renderDrawer();
+    } catch (err) { $('add-msg').style.color = 'var(--down)'; $('add-msg').textContent = errText(err); }
+    $('add-go').disabled = false;
+  }
+  function exportCsv() {
+    const head = ['名前', '担当者', 'TikTok URL', 'フェーズ', '前月', '変化', '平均再生', '週あたり投稿', 'フォロワー', '判定理由', '次のフェーズまで', 'AIの確度', 'メモ'];
+    const q = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [head.join(',')].concat(state.list.map((x) => [x.name, x.owner, x.tiktok, x.phase, x.prevPhase, x.change, x.avg === null ? '' : Math.round(x.avg), x.weekly === null ? '' : x.weekly, x.followers, x.reason, x.next, x.confidence, x.memo].map(q).join(',')));
+    const a = el('a', { href: URL.createObjectURL(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv' })), download: 'TikTok_フェーズ.csv' });
+    document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  async function reload() {
+    const data = await gs('tkWebLoad');
+    Object.assign(state, { rows: data.rows || [], prev: data.prev || {}, history: data.history || [], cfg: data.cfg, month: data.month, hasKey: data.hasKey, loaded: true });
+    if (data.url) { $('sheet-link').href = data.url; $('sheet-link').hidden = false; }
+    render();
+  }
+
+  $('v-board').addEventListener('click', () => { state.view = 'board'; try { localStorage.setItem('tk-view', 'board'); } catch (e) {} render(); });
+  $('v-trend').addEventListener('click', () => { state.view = 'trend'; try { localStorage.setItem('tk-view', 'trend'); } catch (e) {} render(); });
+  ['q', 'f-owner'].forEach((id) => $(id).addEventListener(id === 'q' ? 'input' : 'change', () => state.list.length && renderBoard()));
+  $('btn-add').addEventListener('click', () => { $('add-msg').textContent = ''; $('add-modal').hidden = false; });
+  $('add-close').addEventListener('click', () => ($('add-modal').hidden = true));
+  $('add-form').addEventListener('submit', addAccount);
+  $('btn-export').addEventListener('click', exportCsv);
+  $('scrim').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('add-modal').hidden = true; closeDrawer(); } });
+
+  render();
+  reload().catch((e) => { state.loaded = true; showNotice('スプレッドシートを読み込めませんでした：' + errText(e) + '。ページを再読み込みしてください。'); render(); });
+})();
+</script>
