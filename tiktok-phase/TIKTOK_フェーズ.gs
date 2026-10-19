@@ -113,7 +113,7 @@ function tkEnsureSheets_(ss) {
       ['フェーズ4：平均再生（回）', 200000, '直近1か月の平均再生がこれ以上でフェーズ4（最終形）'],
       ['フェーズ3：平均再生（回）', 100000, 'これ以上、または有償案件獲得済みで、本部長承認○ならフェーズ3（なければ3候補）'],
       ['フェーズ2：週あたり投稿（本）', 3, '直近30日の投稿数×7÷30 がこれ以上でフェーズ2'],
-      ['Gemini のモデル', 'gemini-2.5-flash', '新しいモデルが出たらここを書き換える（例：gemini-2.5-pro）'],
+      ['Gemini のモデル', 'gemini-3.8-flash', '古くなって使えなくなると、Gemini がすすめる新しいモデルに自動で書き換える'],
       ['目標人数：フェーズ4', '', ''],
       ['目標人数：フェーズ3', '', ''],
       ['目標人数：フェーズ2', '', ''],
@@ -177,7 +177,7 @@ function tkEnsureSheets_(ss) {
 function tkReadConfig_(ss) {
   const v = ss.getSheetByName(TK_SHEET.settings).getRange('B4:B11').getValues().map(function (r) { return r[0]; });
   return {
-    p4: tkNum_(v[0]) || 200000, p3: tkNum_(v[1]) || 100000, weekly: tkNum_(v[2]) || 3, model: String(v[3] || '').trim() || 'gemini-2.5-flash',
+    p4: tkNum_(v[0]) || 200000, p3: tkNum_(v[1]) || 100000, weekly: tkNum_(v[2]) || 3, model: String(v[3] || '').trim() || 'gemini-3.8-flash',
     targets: { フェーズ4: tkNum_(v[4]), フェーズ3: tkNum_(v[5]), フェーズ2: tkNum_(v[6]), フェーズ1: tkNum_(v[7]) },
   };
 }
@@ -427,6 +427,7 @@ function tkUpdateRow_(ss, row) {
   let status;
   try {
     ai = tkAskGemini_(url, String(r.insta || '').trim(), profile, cfg.model);
+    if (ai.model) ss.getSheetByName(TK_SHEET.settings).getRange('B7').setValue(ai.model); // 次からは新しいモデルを使う
     status = 'OK' + (profile ? '' : '（ページの数字は取得できずAIのみ）');
   } catch (e) {
     status = 'エラー：' + (e && e.message ? e.message : e);
@@ -501,6 +502,19 @@ function tkParseProfileHtml_(html) {
 
 /** Gemini に直近30日の投稿数・平均再生を調べてもらう（URLを開く機能とGoogle検索を使う） */
 function tkAskGemini_(url, insta, profile, model) {
+  try {
+    return tkAskGeminiModel_(url, insta, profile, model);
+  } catch (e) {
+    // 「このモデルはもう使えません。models/○○ を使ってください」と返ってきたら、すすめられたモデルでやり直す
+    const m = String(e && e.message).match(/Gemini 404[\s\S]*?use (?:models\/)?([a-z0-9][\w.-]*[a-z0-9])/i);
+    if (!m || m[1] === model) throw e;
+    const res = tkAskGeminiModel_(url, insta, profile, m[1]);
+    res.model = m[1];
+    return res;
+  }
+}
+
+function tkAskGeminiModel_(url, insta, profile, model) {
   const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('Gemini APIキーが未設定です（メニュー「Gemini APIキーを設定」）');
   const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
@@ -546,7 +560,7 @@ function tkAskGemini_(url, insta, profile, model) {
   if (code !== 200) {
     let msg = body;
     try { msg = JSON.parse(body).error.message; } catch (e) { /* そのまま */ }
-    throw new Error('Gemini ' + code + '：' + String(msg).slice(0, 200));
+    throw new Error('Gemini ' + code + '：' + String(msg).slice(0, 300));
   }
   return tkParseGemini_(body);
 }

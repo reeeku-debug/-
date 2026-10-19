@@ -131,7 +131,7 @@ test('AQ.… のキーもまず Gemini API に送る。Gemini API で使えな�
   let sent = [];
   const { ctx, props } = setup({ UrlFetchApp: { fetch(u, opt) { sent.push({ u, tools: JSON.parse(opt.payload).tools.length, key: opt.headers['x-goog-api-key'] }); return ok; } } });
   props.GEMINI_API_KEY = 'AQ.test';
-  assert.strictEqual(ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-2.5-flash').posts30, 3);
+  assert.strictEqual(ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-3.8-flash').posts30, 3);
   assert.strictEqual(sent.length, 1);
   assert.match(sent[0].u, /^https:\/\/generativelanguage\.googleapis\.com\//);
   assert.strictEqual(sent[0].key, 'AQ.test');
@@ -145,9 +145,28 @@ test('AQ.… のキーもまず Gemini API に送る。Gemini API で使えな�
     if (n === 2) return { getResponseCode: () => 400, getContentText: () => '{"error":{"message":"url_context is not supported"}}' };
     return ok;
   } };
-  assert.strictEqual(ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-2.5-flash').posts30, 3);
-  assert.match(sent[1].u, /^https:\/\/aiplatform\.googleapis\.com\/v1\/publishers\/google\/models\/gemini-2\.5-flash:generateContent\?key=AQ\.test$/);
+  assert.strictEqual(ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-3.8-flash').posts30, 3);
+  assert.match(sent[1].u, /^https:\/\/aiplatform\.googleapis\.com\/v1\/publishers\/google\/models\/gemini-3\.8-flash:generateContent\?key=AQ\.test$/);
   assert.deepStrictEqual(sent.map((x) => x.tools), [2, 2, 1]);
+});
+
+test('モデルが古くて使えないときは、すすめられたモデルでやり直し、設定も書き換える', () => {
+  const used = [];
+  const UrlFetchApp = { fetch(u) {
+    if (/tiktok\.com/.test(u)) return { getResponseCode: () => 403, getContentText: () => '' };
+    used.push(u.match(/models\/([^:]+):/)[1]);
+    if (/gemini-2\.5-flash/.test(u)) return { getResponseCode: () => 404, getContentText: () => '{"error":{"message":"This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.8-flash for the latest features and improvements."}}' };
+    return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"posts_30d": 20, "avg_views_30d": 5000, "confidence": "中", "note": "x"}' }] } }] }) };
+  } };
+  const { ctx, ss } = setup({ UrlFetchApp });
+  ctx.setupTikTok();
+  ss.getSheetByName('設定').getRange('B7').setValue('gemini-2.5-flash');
+  const sheet = ss.getSheetByName('フェーズ判定');
+  sheet.getRange(5, 1, 1, 3).setValues([['え', '', '@ddd']]);
+  ctx.tkUpdateAll();
+  assert.strictEqual(sheet.getRange(5, 11).getValue(), 'フェーズ2');
+  assert.strictEqual(ss.getSheetByName('設定').getRange('B7').getValue(), 'gemini-3.8-flash');
+  assert.deepStrictEqual(used, ['gemini-2.5-flash', 'gemini-3.8-flash']);
 });
 
 test('アプリの画面：判定の関数が埋め込まれ、スクリプトとして読める', () => {
