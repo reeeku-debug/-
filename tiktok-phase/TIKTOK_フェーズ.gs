@@ -55,6 +55,7 @@ function onOpen() {
     .addItem('フェーズを再計算（AIは使わない）', 'tkRefreshAll')
     .addSeparator()
     .addItem('Gemini APIキーを設定', 'tkSetApiKey')
+    .addItem('Gemini の接続テスト', 'tkTestGemini')
     .addItem('毎月の自動判定をオンにする（毎月1日 9時）', 'tkSetupTrigger')
     .addItem('はじめての設定（シートを作る）', 'setupTikTok')
     .addToUi();
@@ -87,6 +88,35 @@ function tkSetApiKey() {
   if (!key) return;
   PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', key);
   ui.alert('保存しました。メニュー「AIで再生数を調べてフェーズ判定」で判定できます。');
+}
+
+/** どこで止まっているかを調べる：同じキー・モデルで「AIだけ」「Google検索つき」「URLを開く機能つき」を1回ずつ試す */
+function tkTestGemini() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lines = tkTestGemini_(tkReadConfig_(ss).model);
+  SpreadsheetApp.getUi().alert('Gemini の接続テスト', lines.join('\n\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function tkTestGemini_(model) {
+  const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) return ['APIキーが未設定です（メニュー「Gemini APIキーを設定」）'];
+  const out = ['キー：' + key.slice(0, 4) + '…（' + key.length + '文字）／モデル：' + model];
+  [['AIだけ', null], ['Google検索つき', [{ google_search: {} }]], ['URLを開く機能つき', [{ url_context: {} }]]].forEach(function (t) {
+    const payload = { contents: [{ role: 'user', parts: [{ text: 'OKとだけ答えてください' }] }] };
+    if (t[1]) payload.tools = t[1];
+    const res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true, headers: { 'x-goog-api-key': key }, payload: JSON.stringify(payload),
+    });
+    const code = res.getResponseCode();
+    let msg = '';
+    if (code !== 200) {
+      try { msg = JSON.parse(res.getContentText()).error.message; } catch (e) { msg = res.getContentText(); }
+      const q = res.getContentText().match(/"quota(?:Metric|Id)"\s*:\s*"([^"]+)"/g);
+      if (q) msg += '［' + q.map(function (x) { return x.replace(/^.*:\s*"|"$/g, '').replace(/^.*\//, ''); }).join('・') + '］';
+    }
+    out.push(t[0] + '：' + (code === 200 ? 'OK' : code + ' ' + String(msg).slice(0, 220)));
+  });
+  return out;
 }
 
 function tkSetupTrigger() {

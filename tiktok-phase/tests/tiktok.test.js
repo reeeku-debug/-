@@ -184,6 +184,18 @@ test('429：指定の秒数だけ待ってやり直す。無料枠がないモ�
   assert.throws(() => ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-3.8-flash'), /generate_content_free_tier_requests・上限 20）。1日の上限/);
 });
 
+test('接続テスト：AIだけ・検索つき・URLつきを1回ずつ試して結果を並べる', () => {
+  const UrlFetchApp = { fetch(u, opt) {
+    const tools = JSON.parse(opt.payload).tools;
+    if (!tools) return { getResponseCode: () => 200, getContentText: () => '{}' };
+    return { getResponseCode: () => 429, getContentText: () => '{"error":{"message":"You exceeded your current quota","details":[{"violations":[{"quotaMetric":"generativelanguage.googleapis.com/search_grounding_requests","quotaId":"SearchGroundingPerDay-FreeTier"}]}]}}' };
+  } };
+  const { ctx } = setup({ UrlFetchApp });
+  const lines = ctx.tkTestGemini_('gemini-3.8-flash');
+  assert.strictEqual(lines[1], 'AIだけ：OK');
+  assert.match(lines[2], /^Google検索つき：429 .*search_grounding_requests・SearchGroundingPerDay-FreeTier/);
+});
+
 test('アプリの画面：判定の関数が埋め込まれ、スクリプトとして読める', () => {
   let html = '';
   const out = { setTitle() { return out; }, addMetaTag() { return out; } };
