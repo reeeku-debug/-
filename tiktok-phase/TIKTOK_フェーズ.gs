@@ -518,23 +518,29 @@ function tkAskGemini_(url, insta, profile, model) {
     '{"followers": 数値またはnull, "posts_30d": 数値またはnull, "avg_views_30d": 数値またはnull, "last_post_date": "YYYY-MM-DD"またはnull,',
     ' "confidence": "高" または "中" または "低", "note": "日本語で1〜2文。数字の根拠や、伸びている投稿の特徴など"}',
   ].filter(Boolean).join('\n');
-  // AI Studio のキー（AIza…）は Gemini API、Google Cloud の Vertex AI（エクスプレスモード）のキー（AQ.…）は Vertex AI に送る
-  const vertex = /^AQ\./.test(key);
-  const endpoint = vertex
-    ? 'https://aiplatform.googleapis.com/v1/publishers/google/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key)
-    : 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
-  const send = function (tools) {
+  // まず Gemini API（AI Studio のキー。AIza… も AQ.… も、お支払い設定なしで使える）に送る。
+  // そのキーが Gemini API で使えないときだけ、Vertex AI（Google Cloud・お支払い設定が必要）に送り直す
+  const gemini = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
+  const vertex = 'https://aiplatform.googleapis.com/v1/publishers/google/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key);
+  const send = function (endpoint, tools) {
     return UrlFetchApp.fetch(endpoint, {
       method: 'post',
       contentType: 'application/json',
       muteHttpExceptions: true,
-      headers: vertex ? {} : { 'x-goog-api-key': key },
+      headers: endpoint === gemini ? { 'x-goog-api-key': key } : {},
       payload: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], tools: tools, generationConfig: { temperature: 0 } }),
     });
   };
-  let res = send([{ url_context: {} }, { google_search: {} }]);
-  // URLを開く機能が使えないモデル・環境では、Google検索だけでもう一度
-  if (res.getResponseCode() === 400 && /url_context|url context|tool/i.test(res.getContentText())) res = send([{ google_search: {} }]);
+  const ask = function (endpoint) {
+    let r = send(endpoint, [{ url_context: {} }, { google_search: {} }]);
+    // URLを開く機能が使えないモデル・環境では、Google検索だけでもう一度
+    if (r.getResponseCode() === 400 && /url_context|url context|tool/i.test(r.getContentText())) r = send(endpoint, [{ google_search: {} }]);
+    return r;
+  };
+  let res = ask(gemini);
+  if (/^AQ\./.test(key) && [400, 401, 403].indexOf(res.getResponseCode()) >= 0 && /api key|API_KEY|credential|authentic/i.test(res.getContentText())) {
+    res = ask(vertex);
+  }
   const code = res.getResponseCode();
   const body = res.getContentText();
   if (code !== 200) {
