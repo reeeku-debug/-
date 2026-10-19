@@ -73,7 +73,7 @@ test('URLを入れてAIで判定：数字を書き込み、フェーズ・履歴
       calls.push(url);
       if (/tiktok\.com/.test(url)) return { getResponseCode: () => 200, getContentText: () => page };
       const body = JSON.parse(opt.payload);
-      assert.ok(body.tools.some((t) => t.url_context), 'URLを開く機能を使う');
+      assert.deepStrictEqual(body.tools, [{ url_context: {} }], 'URLを開く機能だけを使う（検索は使わない）');
       assert.strictEqual(opt.headers['x-goog-api-key'], 'k');
       const text = /@aaa/.test(body.contents[0].parts[0].text)
         ? '{"followers": null, "posts_30d": 15, "avg_views_30d": 120000, "last_post_date": "2026-10-18", "confidence": "高", "note": "伸びている"}'
@@ -147,7 +147,7 @@ test('AQ.… のキーもまず Gemini API に送る。Gemini API で使えな�
   } };
   assert.strictEqual(ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-3.8-flash').posts30, 3);
   assert.match(sent[1].u, /^https:\/\/aiplatform\.googleapis\.com\/v1\/publishers\/google\/models\/gemini-3\.8-flash:generateContent\?key=AQ\.test$/);
-  assert.deepStrictEqual(sent.map((x) => x.tools), [2, 2, 1]);
+  assert.deepStrictEqual(sent.map((x) => x.tools), [1, 1, 1]);
 });
 
 test('モデルが古くて使えないときは、すすめられたモデルでやり直し、設定も書き換える', () => {
@@ -194,6 +194,16 @@ test('接続テスト：AIだけ・検索つき・URLつきを1回ずつ試し�
   const lines = ctx.tkTestGemini_('gemini-3.8-flash');
   assert.strictEqual(lines[1], 'AIだけ：OK');
   assert.match(lines[2], /^Google検索つき：429 .*search_grounding_requests・SearchGroundingPerDay-FreeTier/);
+});
+
+test('混み合っている（503）ときは待ってやり直す', () => {
+  let n = 0;
+  const slept = [];
+  const ok = { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"posts_30d": 3, "avg_views_30d": 1000, "confidence": "低", "note": "x"}' }] } }] }) };
+  const { ctx } = setup({ UrlFetchApp: { fetch: () => (++n <= 2 ? { getResponseCode: () => 503, getContentText: () => 'high demand' } : ok) } });
+  ctx.Utilities.sleep = (ms) => slept.push(ms);
+  assert.strictEqual(ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-3.8-flash').posts30, 3);
+  assert.deepStrictEqual(slept, [8000, 16000]);
 });
 
 test('アプリの画面：判定の関数が埋め込まれ、スクリプトとして読める', () => {

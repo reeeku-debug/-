@@ -557,7 +557,7 @@ function tkAskGeminiModel_(url, insta, profile, model) {
     'ルール：',
     '- 投稿数：今日までの30日間に投稿された数（TikTokは動画・写真。Instagramはフィード・リール。ストーリーズは数えない）',
     '- 平均再生：その30日間の投稿の再生数の平均。ただし投稿から3日未満の投稿は除く',
-    '- 確かめられない数字は null にする（推測で埋めない）',
+    '- TikTokのページ（' + url + '）を開いて確かめる。確かめられない数字は null にする（推測で埋めない）',
     '答えは次のJSONだけを返してください（説明文やコードブロックは不要）：',
     '{"followers": 数値またはnull, "posts_30d": 数値またはnull, "avg_views_30d": 数値またはnull, "last_post_date": "YYYY-MM-DD"またはnull,',
     ' "confidence": "高" または "中" または "低", "note": "日本語で1〜2文。数字の根拠や、伸びている投稿の特徴など"}',
@@ -576,8 +576,14 @@ function tkAskGeminiModel_(url, insta, profile, model) {
     });
   };
   const ask = function (endpoint) {
-    let r = send(endpoint, [{ url_context: {} }, { google_search: {} }]);
-    // URLを開く機能が使えないモデル・環境では、Google検索だけでもう一度
+    // URLを開く機能だけを使う（Google検索は無料枠が小さく、一緒に送ると検索の上限で全体がエラーになるため）
+    let r = send(endpoint, [{ url_context: {} }]);
+    // 混み合っている（503）ときは少し待って2回までやり直す
+    for (let i = 0; i < 2 && (r.getResponseCode() === 503 || r.getResponseCode() === 500); i++) {
+      Utilities.sleep(8000 * (i + 1));
+      r = send(endpoint, [{ url_context: {} }]);
+    }
+    // URLを開く機能が使えないモデル・環境では、Google検索でもう一度
     if (r.getResponseCode() === 400 && /url_context|url context|tool/i.test(r.getContentText())) r = send(endpoint, [{ google_search: {} }]);
     return r;
   };
