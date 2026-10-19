@@ -180,6 +180,8 @@ test('429：指定の秒数だけ待ってやり直す。無料枠がないモ�
   assert.deepStrictEqual(slept, [13000]);
   ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 429, getContentText: () => '{"error":{"message":"Quota exceeded for metric: generate_content_free_tier_requests, limit: 0, model: gemini-3.8-pro"}}' }) };
   assert.throws(() => ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-3.8-pro'), /無料枠では使えません/);
+  ctx.UrlFetchApp = { fetch: () => ({ getResponseCode: () => 429, getContentText: () => '{"error":{"message":"You exceeded your current quota","details":[{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[{"quotaMetric":"generativelanguage.googleapis.com/generate_content_free_tier_requests","quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier","quotaValue":"20"}]}]}}' }) };
+  assert.throws(() => ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-3.8-flash'), /generate_content_free_tier_requests・上限 20）。1日の上限/);
 });
 
 test('アプリの画面：判定の関数が埋め込まれ、スクリプトとして読める', () => {

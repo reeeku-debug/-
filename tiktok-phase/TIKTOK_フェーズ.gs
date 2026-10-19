@@ -555,7 +555,7 @@ function tkAskGeminiModel_(url, insta, profile, model) {
   // 429（回数の上限）：1分あたりの上限なら、Gemini が指定する秒数だけ待って1回だけやり直す。無料枠がないモデルなら分かるように伝える
   if (res.getResponseCode() === 429) {
     const text = res.getContentText();
-    if (/limit:\s*0\b/.test(text)) {
+    if (/limit:\s*0\b|"quotaValue"\s*:\s*"0"/.test(text)) {
       throw new Error('Gemini 429：このモデル（' + model + '）は無料枠では使えません。設定シートB7を無料枠のあるモデル（aistudio.google.com/usage で確認）にするか、お支払い設定をしてください');
     }
     const wait = text.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/);
@@ -574,7 +574,12 @@ function tkAskGeminiModel_(url, insta, profile, model) {
     let msg = body;
     try { msg = JSON.parse(body).error.message; } catch (e) { /* そのまま */ }
     if (code === 429) {
-      throw new Error('Gemini 429：使える回数の上限です。1日の上限なら明日、1分の上限なら数分おいて、もう一度メニューを押してください（' + String(msg).slice(0, 120) + '）');
+      // どの上限に当たったか（例：generate_content_free_tier_requests・limit: 20・model: …）を本文から拾って見せる
+      const metric = (body.match(/quota_?metric"?\s*[:=]\s*"([^"]+)"/i) || body.match(/metric:\s*([\w./-]+)/i) || [])[1] || '';
+      const limit = (body.match(/quota_?value"?\s*[:=]\s*"?(\d+)/i) || body.match(/limit:\s*(\d+)/i) || [])[1] || '';
+      const perDay = /per_?day|PerDay|daily/i.test(body);
+      throw new Error('Gemini 429：使える回数の上限です' + (metric ? '（' + metric.replace(/^.*\//, '') + (limit ? '・上限 ' + limit : '') + '）' : '') +
+        (perDay ? '。1日の上限なので明日もう一度押してください' : '。数分おいてもう一度押してください') + '。続くときは aistudio.google.com/usage で上限を確認');
     }
     throw new Error('Gemini ' + code + '：' + String(msg).slice(0, 300));
   }
