@@ -375,7 +375,11 @@ function tkUpdateAll() {
   tkEnsureSheets_(ss);
   const start = Date.now();
   const today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd');
-  const rows = tkReadRows_(ss).filter(function (r) { return r.tiktok && String(r.fetchedAt).indexOf(today) !== 0; });
+  // 今日うまく調べられた人だけ飛ばす（エラーだった人・数字が取れなかった人は、もう一度押すと調べ直す）
+  const doneToday = function (r) {
+    return String(r.fetchedAt).indexOf(today) === 0 && String(r.status).indexOf('OK') === 0 && (r.avgAi !== '' || r.postsAi !== '');
+  };
+  const rows = tkReadRows_(ss).filter(function (r) { return r.tiktok && !doneToday(r); });
   let done = 0;
   for (let i = 0; i < rows.length; i++) {
     if (Date.now() - start > TK_TIME_BUDGET_MS) break;
@@ -514,17 +518,23 @@ function tkAskGemini_(url, insta, profile, model) {
     '{"followers": 数値またはnull, "posts_30d": 数値またはnull, "avg_views_30d": 数値またはnull, "last_post_date": "YYYY-MM-DD"またはnull,',
     ' "confidence": "高" または "中" または "低", "note": "日本語で1〜2文。数字の根拠や、伸びている投稿の特徴など"}',
   ].filter(Boolean).join('\n');
-  const res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
-    method: 'post',
-    contentType: 'application/json',
-    muteHttpExceptions: true,
-    headers: { 'x-goog-api-key': key },
-    payload: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      tools: [{ url_context: {} }, { google_search: {} }],
-      generationConfig: { temperature: 0 },
-    }),
-  });
+  // AI Studio のキー（AIza…）は Gemini API、Google Cloud の Vertex AI（エクスプレスモード）のキー（AQ.…）は Vertex AI に送る
+  const vertex = /^AQ\./.test(key);
+  const endpoint = vertex
+    ? 'https://aiplatform.googleapis.com/v1/publishers/google/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(key)
+    : 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
+  const send = function (tools) {
+    return UrlFetchApp.fetch(endpoint, {
+      method: 'post',
+      contentType: 'application/json',
+      muteHttpExceptions: true,
+      headers: vertex ? {} : { 'x-goog-api-key': key },
+      payload: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], tools: tools, generationConfig: { temperature: 0 } }),
+    });
+  };
+  let res = send([{ url_context: {} }, { google_search: {} }]);
+  // URLを開く機能が使えないモデル・環境では、Google検索だけでもう一度
+  if (res.getResponseCode() === 400 && /url_context|url context|tool/i.test(res.getContentText())) res = send([{ google_search: {} }]);
   const code = res.getResponseCode();
   const body = res.getContentText();
   if (code !== 200) {

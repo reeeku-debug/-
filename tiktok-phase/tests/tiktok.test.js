@@ -117,6 +117,28 @@ test('APIキーがないときは取得状況にエラーを書く', () => {
   ctx.tkUpdateAll();
   assert.match(String(sheet.getRange(5, 26).getValue()), /APIキーが未設定/);
   assert.strictEqual(sheet.getRange(5, 11).getValue(), '未判定');
+  // エラーだった人は、同じ日にもう一度押すと調べ直す
+  props.GEMINI_API_KEY = 'k';
+  let asked = 0;
+  ctx.UrlFetchApp = { fetch: (u) => /generativelanguage/.test(u) ? (asked++, { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"posts_30d": 20, "avg_views_30d": 5000, "confidence": "中", "note": "x"}' }] } }] }) }) : { getResponseCode: () => 403, getContentText: () => '' } };
+  ctx.tkUpdateAll();
+  assert.strictEqual(asked, 1);
+  assert.strictEqual(sheet.getRange(5, 11).getValue(), 'フェーズ2');
+});
+
+test('Vertex AI のキー（AQ.…）は Vertex AI に送り、URLを開く機能が使えなければ検索だけで再実行', () => {
+  const sent = [];
+  const UrlFetchApp = { fetch(u, opt) {
+    sent.push({ u, tools: JSON.parse(opt.payload).tools.length });
+    if (sent.length === 1) return { getResponseCode: () => 400, getContentText: () => '{"error":{"message":"url_context is not supported"}}' };
+    return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"posts_30d": 3, "avg_views_30d": 1000, "confidence": "低", "note": "x"}' }] } }] }) };
+  } };
+  const { ctx, props } = setup({ UrlFetchApp });
+  props.GEMINI_API_KEY = 'AQ.test';
+  const g = ctx.tkAskGemini_('https://www.tiktok.com/@a', '', null, 'gemini-2.5-flash');
+  assert.strictEqual(g.posts30, 3);
+  assert.match(sent[0].u, /^https:\/\/aiplatform\.googleapis\.com\/v1\/publishers\/google\/models\/gemini-2\.5-flash:generateContent\?key=AQ\.test$/);
+  assert.deepStrictEqual(sent.map((x) => x.tools), [2, 1]);
 });
 
 test('アプリの画面：判定の関数が埋め込まれ、スクリプトとして読める', () => {
