@@ -7,9 +7,11 @@
 //        - 20_受領管理          … ANNIN No.・姓名・所属事務所・開始年月（月の列はチェックなし）
 //        - 30_個人情報（銀行口座）… 郵便番号・住所・電話番号・銀行名・支店名・区分・口座名義・口座番号
 //      ANNIN No. は3シートの最大の番号＋1を自動で振る（手入力した番号が使用済みなら登録しない）
-//   ② 入金チェック：ANNIN No. か名前（カナも可）で探して、その月の［受］にチェックを付ける
-//        - ANNIN No. をまとめて貼り付けて一括チェックもできる
-//   ③ 入金ダッシュボード：今月（または選んだ月）の入金数・未入金数・入金率・事務所別・未入金者一覧・月別推移
+//   ② 入金チェック：ANNIN No. か名前（カナも可）で探して、その月のステータス（入金あり・サブスク・休止・退所など）と
+//      支払方法（振込など）を入れる。ANNIN No. をまとめて貼り付けて一括で入れることもできる
+//   ③ 入金ダッシュボード：今月（または選んだ月）の入金数・未入金数・入金率・事務所別・ステータス別・未入金者一覧・月別推移
+//   ④ 受領管理のステータス形式への変換：チェックボックス（TRUE/FALSE）をプルダウン（入金あり・サブスク…）に変える。
+//      上に月ごとの集計行、左に支払方法・着金日の列を追加し、ステータスで色分けする（最初に1回だけ）
 //
 // 数式が入っている列（入金月数・最終入金月・ステータスなど）は、1つ上の行の数式をそのまま引き継ぐ。
 // セットアップ手順は同じフォルダの README.md を参照してください。
@@ -30,6 +32,30 @@ const GENDERS = ['男', '女', 'ジェンダーレス'];
 
 /** アプリで選べる口座区分 */
 const ACCOUNT_TYPES = ['普通口座', '当座口座'];
+
+/**
+ * 20_受領管理の月の列に入れるステータス（プルダウンの順）と色。
+ * paid に入っているステータスを「入金済み」として数える。
+ * excluded に入っているステータスの人は、その月の入金対象から外す（未入金に数えない）。
+ */
+const STATUS = {
+  list: ['当月開始', '入金あり', 'サブスク', '翌月支払い', '未入金', '休止', '退所', 'クーオフ'],
+  paid: ['当月開始', '入金あり', 'サブスク'],
+  excluded: ['休止', '退所', 'クーオフ'],
+  colors: {
+    当月開始: ['#cfe2f3', '#1f2328'],
+    入金あり: ['#f4cccc', '#1f2328'],
+    サブスク: ['#d9ead3', '#1f2328'],
+    翌月支払い: ['#fff2cc', '#1f2328'],
+    未入金: ['#fce5cd', '#b42318'],
+    休止: ['#e8e8e8', '#1f2328'],
+    退所: ['#434343', '#ffffff'],
+    クーオフ: ['#d9d2e9', '#1f2328'],
+  },
+};
+
+/** アプリで選べる支払方法 */
+const PAY_METHODS = ['振込', 'スクエア', 'JMS'];
 
 /** 列の見出し（左から順に探す。空白・全角半角の違いは無視） */
 const COLS = {
@@ -55,6 +81,9 @@ const COLS = {
   accountType: ['区分', '口座区分'],
   holder: ['口座名義'],
   accountNo: ['口座番号'],
+  method: ['支払方法'],
+  paidDate: ['着金日'],
+  targetCheck: ['対象月チェック（ダッシュボードB4連動）', '対象月チェック'],
 };
 
 // ===== 画面 ===============================================================
@@ -64,6 +93,10 @@ function onOpen() {
     .createMenu('ANNIN管理')
     .addItem('登録・入金アプリを開く', 'openAppDialog')
     .addItem('入金ダッシュボードを作成・更新', 'buildPaymentDashboard')
+    .addSeparator()
+    .addItem('受領管理をステータス形式に変換（最初に1回だけ）', 'convertPaymentSheet')
+    .addItem('受領管理の色分け・集計・数式を整える', 'refreshPaymentSheet')
+    .addItem('受領管理に次の12ヶ月の列を追加', 'addNextYearMonths')
     .addToUi();
 }
 
@@ -84,7 +117,8 @@ function doGet() {
 /** 画面の初期表示に使うデータ */
 function getInitData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const months = monthColumns_(readTable_(sheet_(ss, SHEET.payment))).map(function (m) { return m.ym; });
+  const pay = readTable_(sheet_(ss, SHEET.payment));
+  const months = monthColumns_(pay).map(function (m) { return m.ym; });
   return {
     nextNo: nextAnninNo_(ss),
     months: months,
@@ -92,6 +126,11 @@ function getInitData() {
     offices: OFFICES,
     genders: GENDERS,
     accountTypes: ACCOUNT_TYPES,
+    statuses: STATUS.list,
+    paidStatuses: STATUS.paid,
+    statusColors: STATUS.colors,
+    methods: PAY_METHODS,
+    statusMode: isStatusMode_(pay),
   };
 }
 
@@ -126,7 +165,7 @@ function registerTalent(form) {
       bank: hasBank ? '済' : '未登録', cancel: false, paidCount: 0, lastPaid: '',
     });
     appendRecord_(sheet_(ss, SHEET.payment), {
-      no: no, fullName: fullName, office: f.office, start: f.start, paidCount: 0, lastPaid: '',
+      no: no, fullName: fullName, office: f.office, start: f.start, paidCount: 0, lastPaid: '', method: f.method,
     }, { uncheckMonths: true });
     appendRecord_(sheet_(ss, SHEET.personal), {
       no: no, fullName: fullName, zip: f.zip, address: f.address, phone: f.phone,
@@ -167,7 +206,10 @@ function searchTalents(query, month) {
       office: String(L(row, 'office')),
       start: normYm_(L(row, 'start')),
       status: String(L(row, 'status')),
-      paid: p && monthCol ? p.values[monthCol.index] === true : false,
+      paid: p && monthCol ? isPaidValue_(p.values[monthCol.index]) : false,
+      monthStatus: p && monthCol ? statusOf_(p.values[monthCol.index]) : '',
+      method: p ? String(cell_(pay, p, 'method')) : '',
+      paidDate: p ? fmtDay_(cell_(pay, p, 'paidDate')) : '',
       inPayment: !!p,
       paidCount: p ? countPaid_(pay, p.values) : 0,
     });
@@ -175,34 +217,47 @@ function searchTalents(query, month) {
   return out.slice(0, 50);
 }
 
-/** 1人の指定月の［受］チェックを付ける／外す */
-function setPayment(no, month, paid) {
+/**
+ * 1人の指定月のステータスを入れる。status は STATUS.list のどれか、空欄に戻すときは ''。
+ * （以前の呼び方 setPayment(no, month, true/false) も使える：true＝入金あり、false＝空欄）
+ * extra.method：支払方法、extra.date：着金日（yyyy-mm-dd）。空なら変えない。
+ */
+function setPayment(no, month, status, extra) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   return withLock_(function () {
-    const res = setPayments_(ss, [no], month, paid !== false);
+    const res = setPayments_(ss, [no], month, status, extra);
     if (res.notFound.length) throw new Error('20_受領管理 に ANNIN No. ' + no + ' が見つかりません');
     return res;
   });
 }
 
-/** ANNIN No. をまとめてチェック（改行・カンマ・空白区切りの文字列） */
-function setPaymentsBulk(text, month) {
+/** ANNIN No. をまとめて入れる（改行・カンマ・空白区切りの文字列）。status を省略すると「入金あり」 */
+function setPaymentsBulk(text, month, status, extra) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const nos = parseNoList_(text);
   if (!nos.length) throw new Error('ANNIN No. を入力してください');
-  return withLock_(function () { return setPayments_(ss, nos, month, true); });
+  return withLock_(function () { return setPayments_(ss, nos, month, status === undefined ? '入金あり' : status, extra); });
 }
 
 // ===== 中身 ===============================================================
 
-function setPayments_(ss, nos, month, paid) {
+function setPayments_(ss, nos, month, status, extra) {
   const ym = normYm_(month);
   if (!ym) throw new Error('対象月を選んでください');
+  if (status === true) status = '入金あり';
+  if (status === false || status === null || status === undefined) status = '';
+  status = String(status).trim();
+  if (status !== '' && STATUS.list.indexOf(status) < 0) throw new Error('ステータス「' + status + '」は選べません');
+  extra = extra || {};
+  const method = String(extra.method || '').trim();
+  if (method && PAY_METHODS.indexOf(method) < 0) throw new Error('支払方法「' + method + '」は選べません');
+  const date = extra.date ? String(extra.date).replace(/-/g, '/') : '';
   const sh = sheet_(ss, SHEET.payment);
   const pay = readTable_(sh);
   const col = findMonthCol_(pay, ym);
   if (!col) throw new Error('20_受領管理 に「' + ym + '」の列がありません。先にシートに月の列を追加してください');
   const byNo = rowsByNo_(pay);
+  const statusMode = isStatusMode_(pay);
   const ledgerSheet = sheet_(ss, SHEET.ledger);
   const ledger = readTable_(ledgerSheet);
   const ledgerByNo = rowsByNo_(ledger);
@@ -214,13 +269,28 @@ function setPayments_(ss, nos, month, paid) {
     const no = toNo_(n);
     const p = no === null ? null : byNo[no];
     if (!p) { notFound.push(String(n)); return; }
-    if ((p.values[col.index] === true) === paid) { already.push(no); return; }
-    sh.getRange(p.rowNumber, col.index + 1).setValue(paid);
-    p.values[col.index] = paid;
-    refreshPaidSummary_(sh, pay, p, ledgerSheet, ledger, ledgerByNo[no]);
-    done.push(no);
+    let changed = false;
+    if (statusMode) {
+      if (method && pay.col.method !== undefined && String(p.values[pay.col.method]) !== method) {
+        sh.getRange(p.rowNumber, pay.col.method + 1).setValue(method);
+        changed = true;
+      }
+      if (date && pay.col.paidDate !== undefined && fmtDay_(p.values[pay.col.paidDate]) !== date) {
+        sh.getRange(p.rowNumber, pay.col.paidDate + 1).setNumberFormat('@').setValue(date);
+        changed = true;
+      }
+    }
+    const value = statusMode ? status : isPaidValue_(status);
+    const same = statusMode ? statusOf_(p.values[col.index]) === status : isPaidValue_(p.values[col.index]) === value;
+    if (!same) {
+      sh.getRange(p.rowNumber, col.index + 1).setValue(value);
+      p.values[col.index] = value;
+      refreshPaidSummary_(sh, pay, p, ledgerSheet, ledger, ledgerByNo[no]);
+      changed = true;
+    }
+    (changed ? done : already).push(no);
   });
-  return { ok: true, month: ym, paid: paid, done: done, already: already, notFound: notFound };
+  return { ok: true, month: ym, status: status, paid: isPaidValue_(status), statusMode: statusMode, done: done, already: already, notFound: notFound };
 }
 
 /** 入金月数・最終入金月が数式でない列なら、値を計算して書き直す（数式ならシートに任せる） */
@@ -245,11 +315,11 @@ function writeIfNotFormula_(sh, table, rowNumber, key, value, asText) {
 }
 
 function countPaid_(pay, values) {
-  return monthColumns_(pay).filter(function (m) { return values[m.index] === true; }).length;
+  return monthColumns_(pay).filter(function (m) { return isPaidValue_(values[m.index]); }).length;
 }
 
 function lastPaid_(pay, values) {
-  const paid = monthColumns_(pay).filter(function (m) { return values[m.index] === true; });
+  const paid = monthColumns_(pay).filter(function (m) { return isPaidValue_(values[m.index]); });
   return paid.length ? paid[paid.length - 1].ym : '';
 }
 
@@ -258,7 +328,7 @@ function lastPaid_(pay, values) {
  * - data のキーに対応する列には値を書く
  * - それ以外で、1つ上の行が数式の列は数式を引き継ぐ（R1C1 でコピーするので行番号がずれない）
  * - 書式・入力規則（チェックボックス・プルダウン）も1つ上の行からコピーする
- * - opts.uncheckMonths：月の列（YYYY/MM）はチェックなし（FALSE）にする
+ * - opts.uncheckMonths：月の列（YYYY/MM）は空にする（チェックボックス形式ならチェックなし＝FALSE）
  */
 function appendRecord_(sh, data, opts) {
   opts = opts || {};
@@ -281,6 +351,7 @@ function appendRecord_(sh, data, opts) {
 
   const monthIdx = {};
   if (opts.uncheckMonths) monthColumns_(t).forEach(function (m) { monthIdx[m.index] = true; });
+  const emptyMonth = isStatusMode_(t) ? '' : false;
   const byIdx = {};
   Object.keys(data).forEach(function (key) {
     const idx = t.col[key];
@@ -296,14 +367,13 @@ function appendRecord_(sh, data, opts) {
       formulas.push([c, templateFormulas[c]]);
       line.push('');
     } else if (monthIdx[c]) {
-      line.push(false);
+      line.push(emptyMonth);
     } else if (Object.prototype.hasOwnProperty.call(byIdx, c)) {
       const v = byIdx[c];
       if (c === t.col.start && v !== '') {
         // 既存の開始年月が日付なら日付で、文字列なら文字列（"2026/10"）で書く
         if (isDate_(tplValue)) {
-          const p = v.split('/');
-          line.push(new Date(Number(p[0]), Number(p[1]) - 1, 1));
+          line.push(ymToDate_(v));
         } else {
           line.push(v);
           textCols.push(c);
@@ -332,7 +402,7 @@ function readTable_(sh) {
   if (lastRow < 1 || lastCol < 1) throw new Error('「' + sh.getName() + '」が空です');
   const values = sh.getRange(1, 1, lastRow, lastCol).getValues();
   let headerRow = -1;
-  for (let r = 0; r < Math.min(values.length, 10); r++) {
+  for (let r = 0; r < Math.min(values.length, 30); r++) {
     if (matchesAny_(values[r][0], COLS.no)) { headerRow = r; break; }
   }
   if (headerRow < 0) throw new Error('「' + sh.getName() + '」のA列に「ANNIN No.」の見出しが見つかりません');
@@ -433,6 +503,7 @@ function cleanForm_(form) {
     accountType: s(form.accountType),
     holder: s(form.holder),
     accountNo: toHalf_(s(form.accountNo)).replace(/[\s\-]/g, ''),
+    method: s(form.method),
   };
   const errors = [];
   if (f.no !== '' && !/^\d+$/.test(f.no)) errors.push('ANNIN No. は数字で入力してください（空欄なら自動で振ります）');
@@ -443,6 +514,7 @@ function cleanForm_(form) {
   if (!f.start) errors.push('開始月を選んでください');
   if (f.gender && GENDERS.indexOf(f.gender) < 0) errors.push('性別の値が正しくありません');
   if (f.accountType && ACCOUNT_TYPES.indexOf(f.accountType) < 0) errors.push('口座区分の値が正しくありません');
+  if (f.method && PAY_METHODS.indexOf(f.method) < 0) errors.push('支払方法の値が正しくありません');
   if (f.accountNo && !/^\d+$/.test(f.accountNo)) errors.push('口座番号は数字で入力してください');
   if (errors.length) throw new Error(errors.join('\n'));
   // 読み方はカタカナにそろえる（ひらがなで入力されても OK）
@@ -451,12 +523,364 @@ function cleanForm_(form) {
   return f;
 }
 
+// ===== 受領管理のステータス形式 ==============================================
+//
+// メニュー「受領管理をステータス形式に変換（最初に1回だけ）」で、20_受領管理 を次の形にする。
+//   - 月の列：チェックボックス → ステータスのプルダウン（STATUS.list）。ステータスごとに色分け
+//       チェックあり → 入金あり（開始月は「当月開始」）
+//       チェックなし → 在籍中（台帳で解約なし）の人の、開始月〜先月は「未入金」、それ以外は空欄
+//   - 開始年月の右に「支払方法」「着金日」の列を追加
+//   - いちばん上に月ごとの集計行（入金済み計・ステータスごとの人数）を追加
+//   - 入金月数・最終入金月・対象月チェックの数式を、ステータスで数えるように書き直す
+//   - 10_タレント台帳の入金月数・最終入金月・ステータス・銀行情報登録を、ANNIN No. で探す数式に書き直す
+//     （これまでは同じ行番号を見ていたため、台帳にだけ行を足すと別の人の値になっていた）
+//   - 50_月次推移をステータスで数えるように書き直す
+//   - 台帳にいて受領管理・個人情報にいない人の行を追加する
+// 変換前の 20_受領管理 は「20_受領管理_変換前_日時」という非表示シートに残す。
+
+/** 受領管理のいちばん上に置く集計行（この下に空行を1行あけて見出し行） */
+const PAY_SUMMARY_ROWS = ['入金済み計'].concat(STATUS.list);
+
+function convertPaymentSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const ans = ui.alert('受領管理をステータス形式に変換',
+    '20_受領管理のチェックボックスを、ステータス（' + STATUS.list.join('・') + '）のプルダウンに変えます。\n\n'
+    + '・チェックあり → 入金あり（開始月は「当月開始」）\n'
+    + '・チェックなし → 在籍中の人の開始月〜先月は「未入金」、それ以外は空欄\n\n'
+    + '変換前の状態は「20_受領管理_変換前_日時」という非表示のシートに残します。変換しますか？',
+    ui.ButtonSet.YES_NO);
+  if (ans !== ui.Button.YES) return;
+  const res = withLock_(function () { return convertPaymentSheet_(ss); });
+  const counts = STATUS.list.map(function (s) { return s + '：' + res.counts[s]; }).join('　');
+  ui.alert('変換しました', [
+    '変換前のバックアップ：' + res.backupName,
+    '変換後のセル数　' + counts,
+    res.tzChanged ? 'スプレッドシートのタイムゾーンを「' + res.tzChanged + '」から「東京」に変えました（開始年月の日付が前月末日になるずれを直すため）' : '',
+    refreshMessage_(res),
+  ].filter(function (x) { return x; }).join('\n\n'), ui.ButtonSet.OK);
+}
+
+function refreshPaymentSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const res = withLock_(function () { return refreshPaymentSheet_(ss); });
+  SpreadsheetApp.getUi().alert('受領管理を整えました', refreshMessage_(res), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function addNextYearMonths() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const added = withLock_(function () { return addMonths_(ss, 12); });
+  SpreadsheetApp.getUi().alert('月の列を追加しました', added[0] + '〜' + added[added.length - 1] + ' の列を追加しました。',
+    SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function refreshMessage_(res) {
+  const lines = [];
+  if (res.added.length) lines.push('20_受領管理に追加した人（台帳にだけいた人）：No.' + res.added.join(', '));
+  if (res.addedPersonal.length) lines.push('30_個人情報に追加した人（住所・口座は空欄）：No.' + res.addedPersonal.join(', '));
+  if (res.duplicates.length) lines.push('⚠ 10_タレント台帳で ANNIN No. が重複しています：No.' + res.duplicates.join(', ') + '（どちらかの番号を直してください）');
+  if (!lines.length) lines.push('台帳・受領管理・個人情報の人数はそろっています。');
+  return lines.join('\n');
+}
+
+function convertPaymentSheet_(ss) {
+  const sh = sheet_(ss, SHEET.payment);
+  let pay = readTable_(sh);
+  if (isStatusMode_(pay)) throw new Error('20_受領管理 はすでにステータス形式です');
+  if (pay.col.start === undefined) throw new Error('20_受領管理 に「開始年月」の列が見つかりません');
+  const months = monthColumns_(pay);
+  checkMonthColumns_(months);
+
+  // 対象月チェック列（台帳のステータスの元）が見る「対象月」のセル。入金ダッシュボードがあればそのB4（空欄なら今月）
+  const monthRef = targetMonthRef_(ss, sh, pay);
+
+  // スプレッドシートのタイムゾーンを東京にする（違うと、日付の開始年月が前月末日になる）
+  let tzChanged = '';
+  if (ss.getSpreadsheetTimeZone && ss.getSpreadsheetTimeZone() !== 'Asia/Tokyo') {
+    tzChanged = ss.getSpreadsheetTimeZone();
+    ss.setSpreadsheetTimeZone('Asia/Tokyo');
+    TZ_CACHE_ = 'Asia/Tokyo';
+  }
+
+  // 1. バックアップ
+  const backupName = SHEET.payment + '_変換前_' + Utilities.formatDate(new Date(), tz_(), 'yyyyMMdd_HHmm');
+  const backup = sh.copyTo(ss);
+  backup.setName(backupName);
+  backup.hideSheet();
+
+  // 2. チェック → ステータス
+  const ledger = readTable_(sheet_(ss, SHEET.ledger));
+  const cancelled = {};
+  ledger.rows.forEach(function (r) { if (cell_(ledger, r, 'cancel') === true) cancelled[toNo_(r.values[0])] = true; });
+  const rowMap = {};
+  pay.rows.forEach(function (r) { rowMap[r.rowNumber] = r; });
+  const cur = currentYm_();
+  const firstRow = pay.headerRow + 1;
+  const nRows = Math.max(sh.getLastRow() - pay.headerRow, 1);
+  const old = sh.getRange(firstRow, months[0].index + 1, nRows, months.length).getValues();
+  const counts = {};
+  STATUS.list.forEach(function (s) { counts[s] = 0; });
+  const block = old.map(function (line, i) {
+    const row = rowMap[firstRow + i];
+    const no = row ? toNo_(row.values[0]) : null;
+    const start = row ? normYm_(cell_(pay, row, 'start')) : '';
+    return line.map(function (v, j) {
+      const ym = months[j].ym;
+      let out = '';
+      if (v === true) out = ym === start ? '当月開始' : '入金あり';
+      else if (typeof v === 'string' && STATUS.list.indexOf(v.trim()) >= 0) out = v.trim();
+      else if (no !== null && !cancelled[no] && start && ym >= start && ym < cur) out = '未入金';
+      if (out) counts[out]++;
+      return out;
+    });
+  });
+
+  // 3. 開始年月の右に「支払方法」「着金日」、4. いちばん上に集計行
+  sh.insertColumnsAfter(pay.col.start + 1, 2);
+  sh.getRange(pay.headerRow, pay.col.start + 2, 1, 2).setValues([['支払方法', '着金日']]);
+  sh.insertRowsBefore(1, PAY_SUMMARY_ROWS.length + 1);
+  pay = readTable_(sh);
+  const range = sh.getRange(pay.headerRow + 1, monthColumns_(pay)[0].index + 1, block.length, months.length);
+  range.clearDataValidations();
+  range.setValues(block);
+
+  const res = refreshPaymentSheet_(ss, { monthRef: monthRef });
+  res.backupName = backupName;
+  res.counts = counts;
+  res.tzChanged = tzChanged;
+  return res;
+}
+
+/**
+ * ステータス形式の受領管理を整える（何度実行しても安全）。
+ * プルダウン・色分け・集計行・行ごとの数式・台帳の数式・50_月次推移・ダッシュボードを作り直し、
+ * 台帳にいて受領管理・個人情報にいない人の行を追加する。
+ */
+function refreshPaymentSheet_(ss, opts) {
+  opts = opts || {};
+  const sh = sheet_(ss, SHEET.payment);
+  let pay = readTable_(sh);
+  if (!isStatusMode_(pay)) throw new Error('先にメニューの「受領管理をステータス形式に変換」を実行してください');
+  const added = addMissingRows_(ss);
+  pay = readTable_(sh);
+  const months = monthColumns_(pay);
+  checkMonthColumns_(months);
+
+  const hdr = pay.headerRow;
+  const first = hdr + 1;
+  const lastRow = Math.max(sh.getLastRow(), first);
+  const bodyRows = sh.getMaxRows() - hdr;
+  const m0 = months[0].index + 1;
+  const mA = colLetter_(m0);
+  const mZ = colLetter_(months[months.length - 1].index + 1);
+  const P = paidArray_();
+  const hdrRange = mA + '$' + hdr + ':' + mZ + '$' + hdr;
+
+  // プルダウンと色分け
+  const monthRange = sh.getRange(first, m0, bodyRows, months.length);
+  monthRange.setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(STATUS.list, true).setAllowInvalid(false).build());
+  monthRange.setHorizontalAlignment('center');
+  const rules = STATUS.list.map(function (s) {
+    return SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(s)
+      .setBackground(STATUS.colors[s][0]).setFontColor(STATUS.colors[s][1]).setRanges([monthRange]).build();
+  });
+  sh.setConditionalFormatRules(rules);
+  if (pay.col.method !== undefined) {
+    sh.getRange(first, pay.col.method + 1, bodyRows, 1).setDataValidation(SpreadsheetApp.newDataValidation()
+      .requireValueInList(PAY_METHODS, true).setAllowInvalid(true).build());
+  }
+
+  // 上の集計行（見出し行の2行上まで）
+  const top = hdr - PAY_SUMMARY_ROWS.length - 1;
+  if (top >= 1) {
+    const labelCol = m0 - 1;
+    sh.getRange(top, labelCol, PAY_SUMMARY_ROWS.length, 1)
+      .setValues(PAY_SUMMARY_ROWS.map(function (l) { return [l]; }))
+      .setHorizontalAlignment('right').setFontWeight('bold');
+    PAY_SUMMARY_ROWS.forEach(function (l, i) {
+      const c = STATUS.colors[l];
+      if (c) sh.getRange(top + i, labelCol).setBackground(c[0]).setFontColor(c[1]);
+    });
+    sh.getRange(top, 2).setValue('月ごとの集計（人数）→').setFontWeight('bold');
+    sh.getRange(top, m0, PAY_SUMMARY_ROWS.length, months.length).setFormulas(PAY_SUMMARY_ROWS.map(function (l) {
+      return months.map(function (m) {
+        const L = colLetter_(m.index + 1);
+        const col = L + first + ':' + L;
+        return l === '入金済み計' ? '=SUM(COUNTIF(' + col + ',' + P + '))' : '=COUNTIF(' + col + ',"' + l + '")';
+      });
+    })).setHorizontalAlignment('center').setFontWeight('bold');
+  }
+
+  // 行ごとの数式：入金月数・最終入金月・対象月チェック
+  const hasNo = {};
+  pay.rows.forEach(function (r) { hasNo[r.rowNumber] = true; });
+  const writeRowFormulas = function (idx, fn) {
+    if (idx === undefined) return;
+    const out = [];
+    for (let r = first; r <= lastRow; r++) out.push([hasNo[r] ? fn(r) : '']);
+    sh.getRange(first, idx + 1, out.length, 1).setFormulas(out);
+  };
+  const monthRef = opts.monthRef || targetMonthRef_(ss, sh, pay);
+  writeRowFormulas(pay.col.paidCount, function (r) { return '=SUM(COUNTIF(' + mA + r + ':' + mZ + r + ',' + P + '))'; });
+  writeRowFormulas(pay.col.lastPaid, function (r) {
+    return '=IFERROR(ARRAYFORMULA(LOOKUP(2,1/ISNUMBER(MATCH(' + mA + r + ':' + mZ + r + ',' + P + ',0)),' + hdrRange + ')),"")';
+  });
+  writeRowFormulas(pay.col.targetCheck, function (r) {
+    return '=IFERROR(ISNUMBER(MATCH(INDEX(' + mA + r + ':' + mZ + r + ',MATCH(' + monthRef + ',' + hdrRange + ',0)),' + P + ',0)),FALSE)';
+  });
+
+  fixLedgerFormulas_(ss, pay);
+  rebuildMonthlyTrend_(ss, pay);
+  sh.setFrozenRows(hdr);
+  sh.setFrozenColumns(2);
+  if (ss.getSheetByName(DASH.sheet)) buildPaymentDashboard_(ss);
+  return { added: added.payment, addedPersonal: added.personal, duplicates: duplicateNos_(ss) };
+}
+
+/** 対象月チェック列が見る対象月のセル：入金ダッシュボードのB4 → 今の数式が見ているセル → ダッシュボードのB4 */
+function targetMonthRef_(ss, sh, pay) {
+  if (ss.getSheetByName(DASH.sheet)) return "'" + DASH.sheet + "'!$B$4";
+  if (pay.col.targetCheck !== undefined && pay.rows.length) {
+    const f = String(sh.getRange(pay.rows[0].rowNumber, pay.col.targetCheck + 1).getFormula() || '');
+    const m = f.match(/MATCH\(\s*([^,]+?)\s*,/);
+    if (m && m[1].indexOf('!') >= 0) return m[1];
+  }
+  return "'" + DASH.sheet + "'!$B$4";
+}
+
+function checkMonthColumns_(months) {
+  if (!months.length) throw new Error('20_受領管理 に月の列（YYYY/MM）が見つかりません');
+  for (let i = 1; i < months.length; i++) {
+    if (months[i].index !== months[i - 1].index + 1) {
+      throw new Error('20_受領管理 の月の列が「' + months[i - 1].ym + '」と「' + months[i].ym + '」の間で途切れています。月の列は左から順に並べてください');
+    }
+  }
+}
+
+/** 台帳にいて受領管理・個人情報にいない人の行を足す */
+function addMissingRows_(ss) {
+  const ledger = readTable_(sheet_(ss, SHEET.ledger));
+  const out = { payment: [], personal: [] };
+  [[SHEET.payment, 'payment'], [SHEET.personal, 'personal']].forEach(function (pair) {
+    const sh = sheet_(ss, pair[0]);
+    const have = rowsByNo_(readTable_(sh));
+    const seen = {};
+    ledger.rows.forEach(function (row) {
+      const no = toNo_(row.values[0]);
+      if (no === null || have[no] || seen[no]) return;
+      seen[no] = true;
+      const fullName = (String(cell_(ledger, row, 'lastName')).trim() + ' ' + String(cell_(ledger, row, 'firstName')).trim()).trim();
+      const data = pair[1] === 'payment'
+        ? { no: no, fullName: fullName, office: String(cell_(ledger, row, 'office')), start: normYm_(cell_(ledger, row, 'start')), paidCount: 0, lastPaid: '' }
+        : { no: no, fullName: fullName };
+      appendRecord_(sh, data, { uncheckMonths: pair[1] === 'payment' });
+      out[pair[1]].push(no);
+    });
+  });
+  return out;
+}
+
+/** 台帳の入金月数・最終入金月・ステータス・銀行情報登録を、ANNIN No. で探す数式にする */
+function fixLedgerFormulas_(ss, pay) {
+  const sh = sheet_(ss, SHEET.ledger);
+  const led = readTable_(sh);
+  if (!led.rows.length) return;
+  const R = "'" + SHEET.payment + "'!";
+  const whole = function (table, prefix, key) { const c = colLetter_(table.col[key] + 1); return prefix + '$' + c + ':$' + c; };
+  const find = function (r, prefix) { return 'MATCH($A' + r + ',' + prefix + '$A:$A,0)'; };
+  const first = led.rows[0].rowNumber;
+  const last = led.rows[led.rows.length - 1].rowNumber;
+  const hasNo = {};
+  led.rows.forEach(function (r) { hasNo[r.rowNumber] = true; });
+  const write = function (key, fn) {
+    if (led.col[key] === undefined) return;
+    const out = [];
+    for (let r = first; r <= last; r++) out.push([hasNo[r] ? fn(r) : '']);
+    sh.getRange(first, led.col[key] + 1, out.length, 1).setFormulas(out);
+  };
+  if (pay.col.paidCount !== undefined) {
+    write('paidCount', function (r) { return '=IFERROR(INDEX(' + whole(pay, R, 'paidCount') + ',' + find(r, R) + '),0)'; });
+  }
+  if (pay.col.lastPaid !== undefined) {
+    write('lastPaid', function (r) { return '=IFERROR(INDEX(' + whole(pay, R, 'lastPaid') + ',' + find(r, R) + '),"")'; });
+  }
+  if (pay.col.targetCheck !== undefined && led.col.cancel !== undefined) {
+    const cancel = colLetter_(led.col.cancel + 1);
+    write('status', function (r) {
+      return '=IF($' + cancel + r + '=TRUE,"退会",IF(IFERROR(INDEX(' + whole(pay, R, 'targetCheck') + ',' + find(r, R) + '),FALSE)=TRUE,"課金中","要確認"))';
+    });
+  }
+  const personal = readTable_(sheet_(ss, SHEET.personal));
+  if (personal.col.bankName !== undefined) {
+    const P = "'" + SHEET.personal + "'!";
+    write('bank', function (r) { return '=IF(IFERROR(INDEX(' + whole(personal, P, 'bankName') + ',' + find(r, P) + '),"")<>"","済","未登録")'; });
+  }
+}
+
+/** 50_月次推移：月ごとの入金済み数（チェックの TRUE・入金済みのステータスを数える） */
+function rebuildMonthlyTrend_(ss, pay) {
+  const sh = ss.getSheetByName('50_月次推移');
+  if (!sh) return;
+  const months = monthColumns_(pay);
+  const R = "'" + SHEET.payment + "'!";
+  const first = pay.headerRow + 1;
+  const last = sh.getLastRow();
+  if (last >= 2) sh.getRange(2, 1, last - 1, 3).clearContent();
+  sh.getRange(1, 1, 1, 3).setValues([['年月', '受領者数', '前月差']]);
+  sh.getRange(2, 1, months.length, 1).setNumberFormat('@').setValues(months.map(function (m) { return [m.ym]; }));
+  sh.getRange(2, 2, months.length, 2).setFormulas(months.map(function (m, i) {
+    const L = colLetter_(m.index + 1);
+    const col = R + L + first + ':' + L;
+    return ['=COUNTIF(' + col + ',TRUE)+SUM(COUNTIF(' + col + ',' + paidArray_() + '))', i === 0 ? '' : '=B' + (i + 2) + '-B' + (i + 1)];
+  }));
+}
+
+/** 台帳で重複している ANNIN No. */
+function duplicateNos_(ss) {
+  const seen = {};
+  const dups = [];
+  readTable_(sheet_(ss, SHEET.ledger)).rows.forEach(function (row) {
+    const no = toNo_(row.values[0]);
+    if (seen[no] && dups.indexOf(no) < 0) dups.push(no);
+    seen[no] = true;
+  });
+  return dups;
+}
+
+/** 受領管理の最後の月の右に n ヶ月分の列を足す（ステータス形式のみ） */
+function addMonths_(ss, n) {
+  const sh = sheet_(ss, SHEET.payment);
+  const pay = readTable_(sh);
+  if (!isStatusMode_(pay)) throw new Error('先にメニューの「受領管理をステータス形式に変換」を実行してください');
+  const months = monthColumns_(pay);
+  checkMonthColumns_(months);
+  const lastM = months[months.length - 1];
+  const labels = [];
+  let ym = lastM.ym;
+  for (let i = 0; i < n; i++) { ym = nextYm_(ym); labels.push(ym); }
+  sh.insertColumnsAfter(lastM.index + 1, n);
+  const head = sh.getRange(pay.headerRow, lastM.index + 2, 1, n);
+  sh.getRange(pay.headerRow, lastM.index + 1).copyTo(head, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  head.setNumberFormat('@').setValues([labels]);
+  refreshPaymentSheet_(ss);
+  return labels;
+}
+
+function nextYm_(ym) {
+  const y = Number(ym.slice(0, 4));
+  const m = Number(ym.slice(5, 7));
+  return m === 12 ? (y + 1) + '/01' : y + '/' + ('0' + (m + 1)).slice(-2);
+}
+
 // ===== 入金ダッシュボード ===================================================
 //
 // メニュー「ANNIN管理 → 入金ダッシュボードを作成・更新」で、次の2シートを作る（何度実行しても安全）。
 //   - 01_入金ダッシュボード … 対象月（空欄なら今月）の入金数・未入金数・入金率・事務所別・未入金者一覧・月別推移
 //   - _入金集計（非表示）   … ダッシュボードの計算用。20_受領管理・10_タレント台帳を数式で参照する
-// 中身はすべて数式なので、アプリやシートでチェックを付けるとすぐに反映される。
+// 中身はすべて数式なので、アプリやシートでステータス（チェック）を入れるとすぐに反映される。
+// 「入金済み」は、チェックボックスの TRUE か、STATUS.paid のステータス（当月開始・入金あり・サブスク）。
+// 「入金対象」は、解約しておらず開始月が来ていて、その月のステータスが STATUS.excluded（休止・退所・クーオフ）でない人。
 
 const DASH = {
   sheet: '01_入金ダッシュボード',
@@ -495,13 +919,16 @@ function buildPaymentDashboard_(ss) {
   const cancel = ledger.col.cancel === undefined ? 'FALSE'
     : 'IFERROR(VLOOKUP(' + noR + ',' + L + 'A' + (ledger.headerRow + 1) + ':' + colLetter_(ledger.headers.length) + ',' + (ledger.col.cancel + 1) + ',FALSE)=TRUE,FALSE)';
   const D = "'" + DASH.sheet + "'!";
-  // 最終入金月：シートの「最終入金月」列が空のことがあるので、月の列のチェックから直接求める（いちばん右の TRUE の月）
+  const P = paidArray_();
+  const paidTest = function (x) { return '((' + x + '=TRUE)+ISNUMBER(MATCH(' + x + ',' + P + ',0))>0)'; };
+  const statusMode = isStatusMode_(pay);
+  // 最終入金月：月の列から直接求める（いちばん右の入金済みの月）
   const months = monthColumns_(pay);
   const mFirst = colLetter_(months[0].index + 1);
   const mLast = colLetter_(months[months.length - 1].index + 1);
   const mHdr = R + mFirst + pay.headerRow + ':' + mLast + pay.headerRow;
-  const lastPaidFormula = '=BYROW(' + R + mFirst + first + ':' + mLast + ',LAMBDA(r,IF(COUNTIF(r,TRUE)=0,"",'
-    + 'INDEX(ARRAYFORMULA(' + ymText(mHdr) + '),1,MAX(FILTER(SEQUENCE(1,COLUMNS(r)),r=TRUE))))))';
+  const lastPaidFormula = '=BYROW(' + R + mFirst + first + ':' + mLast + ',LAMBDA(r,IFERROR('
+    + 'INDEX(ARRAYFORMULA(' + ymText(mHdr) + '),1,MAX(FILTER(SEQUENCE(1,COLUMNS(r)),' + paidTest('r') + '))),"")))';
 
   // 2つのシートを先に用意する（お互いを数式で参照するため）
   let sh = ss.getSheetByName(DASH.sheet);
@@ -512,8 +939,9 @@ function buildPaymentDashboard_(ss) {
   calc.clear();
   const needRows = paySheet.getMaxRows() + 1000;
   if (calc.getMaxRows() < needRows) calc.insertRowsAfter(calc.getMaxRows(), needRows - calc.getMaxRows());
-  calc.getRange(1, 1, 1, 10).setValues([['ANNIN No.', '姓名', '所属事務所', '開始年月', '入金月数', '最終入金月', '開始(数値)', '解約', '対象月入金', '前月入金']]);
-  calc.getRange(2, 1, 1, 10).setFormulas([[
+  calc.getRange(1, 1, 1, 11).setValues([['ANNIN No.', '姓名', '所属事務所', '開始年月', '入金月数', '最終入金月', '開始(数値)', '解約', '対象月入金', '前月入金', '対象月ステータス']]);
+  const monthCell = function (n) { return 'INDEX(' + body + ',0,MAX(1,$M$' + n + '))'; };
+  calc.getRange(2, 1, 1, 11).setFormulas([[
     ifRow(noR),
     ifRow(rng('fullName')),
     ifRow(rng('office')),
@@ -522,8 +950,9 @@ function buildPaymentDashboard_(ss) {
     lastPaidFormula,
     ifRow('IFERROR(VALUE(SUBSTITUTE(' + ymText(rng('start')) + ',"/","")),0)'),
     ifRow(cancel),
-    ifRow('IF($M$5=0,FALSE,INDEX(' + body + ',0,MAX(1,$M$5))=TRUE)'),
-    ifRow('IF($M$6=0,FALSE,INDEX(' + body + ',0,MAX(1,$M$6))=TRUE)'),
+    ifRow('IF($M$5=0,FALSE,' + paidTest(monthCell(5)) + ')'),
+    ifRow('IF($M$6=0,FALSE,' + paidTest(monthCell(6)) + ')'),
+    ifRow('IF($M$5=0,"",IF(' + monthCell(5) + '=TRUE,"入金あり",IF(' + monthCell(5) + '=FALSE,"",TO_TEXT(' + monthCell(5) + '))))'),
   ]]);
   calc.getRange('L1:M6').setValues([
     ['対象月', ''], ['対象月(数値)', ''], ['前月', ''], ['前月(数値)', ''], ['対象月の列番号', ''], ['前月の列番号', ''],
@@ -551,7 +980,8 @@ function buildPaymentDashboard_(ss) {
   }
   const C = "'" + DASH.calc + "'!";
   const col = function (letter) { return C + letter + '2:' + letter; };
-  const target = 'COUNTIFS(' + col('A') + ',"<>",' + col('H') + ',FALSE,' + col('G') + ',"<="&' + C + '$M$2';
+  const excluded = STATUS.excluded.map(function (st) { return ',' + col('K') + ',"<>' + st + '"'; }).join('');
+  const target = 'COUNTIFS(' + col('A') + ',"<>",' + col('H') + ',FALSE,' + col('G') + ',"<="&' + C + '$M$2' + excluded;
   const rate = function (paid, all) { return '=IF(' + all + '=0,"-",' + paid + '/' + all + ')'; };
 
   sh.getRange('A1').setValue('入金ダッシュボード').setFontSize(16).setFontWeight('bold');
@@ -569,9 +999,9 @@ function buildPaymentDashboard_(ss) {
 
   sh.getRange('A7').setValue('■ サマリー').setFontWeight('bold');
   const summary = [
-    ['入金対象（在籍・開始済み）', '=' + target + ')', '解約しておらず、開始月が来ている人'],
-    ['入金済み', '=COUNTIF(' + col('I') + ',TRUE)', '対象月に［受］チェックがある人'],
-    ['未入金', '=' + target + ',' + col('I') + ',FALSE)', '入金対象のうちチェックがない人（右の一覧）'],
+    ['入金対象（在籍・開始済み）', '=' + target + ')', '解約しておらず開始月が来ている人（その月が休止・退所・クーオフの人は除く）'],
+    ['入金済み', '=COUNTIF(' + col('I') + ',TRUE)', '対象月が ' + STATUS.paid.join('・') + ' の人'],
+    ['未入金', '=' + target + ',' + col('I') + ',FALSE)', '入金対象のうち入金済みでない人（右の一覧）'],
     ['入金率', rate(target + ',' + col('I') + ',TRUE)', target + ')'), '入金対象のうち入金済みの割合'],
     ['入金額（円）', '=B9*B5', '入金済み × 月謝'],
     ['前月の入金済み', '=COUNTIF(' + col('J') + ',TRUE)', ''],
@@ -606,7 +1036,23 @@ function buildPaymentDashboard_(ss) {
   sh.getRange(20, 5, offices.length, 1).setNumberFormat('0.0%');
   sh.getRange(19 + offices.length, 1, 1, 5).setFontWeight('bold');
 
-  const tStart = 21 + offices.length + 1;
+  let tStart = 21 + offices.length + 1;
+  if (statusMode) {
+    sh.getRange(tStart, 1).setValue('■ ステータス別（対象月）').setFontWeight('bold');
+    sh.getRange(tStart + 1, 1, 1, 2).setValues([['ステータス', '人数']]).setFontWeight('bold').setBackground('#eef3fe');
+    const st = STATUS.list.concat(['（未入力）']);
+    sh.getRange(tStart + 2, 1, st.length, 1).setValues(st.map(function (x) { return [x]; }));
+    sh.getRange(tStart + 2, 2, st.length, 1).setFormulas(st.map(function (x) {
+      return [x === '（未入力）'
+        ? '=COUNTIFS(' + col('A') + ',"<>",' + col('H') + ',FALSE,' + col('G') + ',"<="&' + C + '$M$2,' + col('K') + ',"")'
+        : '=COUNTIF(' + col('K') + ',"' + x + '")'];
+    })).setNumberFormat('#,##0');
+    STATUS.list.forEach(function (x, i) {
+      sh.getRange(tStart + 2 + i, 1).setBackground(STATUS.colors[x][0]).setFontColor(STATUS.colors[x][1]);
+    });
+    sh.getRange(tStart + 2 + STATUS.list.length, 3).setValue('在籍・開始済みで、対象月のステータスが空欄の人').setFontColor('#656d76');
+    tStart += st.length + 3;
+  }
   sh.getRange(tStart, 1).setValue('■ 月別の入金済み数（直近12ヶ月）').setFontWeight('bold');
   sh.getRange(tStart + 1, 1, 1, 3).setValues([['年月', '入金済み', '前月差']]).setFontWeight('bold').setBackground('#eef3fe');
   const trend = [];
@@ -614,7 +1060,10 @@ function buildPaymentDashboard_(ss) {
     const r = tStart + 2 + i;
     trend.push([
       '=TEXT(EDATE(DATE(LEFT($B$4,4),RIGHT($B$4,2),1),' + (i - 11) + '),"yyyy/mm")',
-      '=IFERROR(COUNTIF(INDEX(' + body + ',0,MATCH(A' + r + ',' + hdrNorm + ',0)),TRUE),"")',
+      (function () {
+        const x = 'INDEX(' + body + ',0,MATCH(A' + r + ',' + hdrNorm + ',0))';
+        return '=IFERROR(COUNTIF(' + x + ',TRUE)+SUM(COUNTIF(' + x + ',' + P + ')),"")';
+      })(),
       i === 0 ? '' : '=IF(OR(B' + r + '="",B' + (r - 1) + '=""),"",B' + r + '-B' + (r - 1) + ')',
     ]);
   }
@@ -633,15 +1082,16 @@ function buildPaymentDashboard_(ss) {
     .build());
 
   sh.getRange('G7').setFormula('="■ 未入金者一覧（"&B10&"人）"').setFontWeight('bold');
-  sh.getRange('G8:L8').setValues([['ANNIN No.', '姓名', '所属', '開始年月', '入金月数', '最終入金月']]).setFontWeight('bold').setBackground('#fdecea');
-  sh.getRange('G9').setFormula('=IFERROR(SORT(FILTER(' + C + 'A2:F,' + col('A') + '<>"",' + col('H') + '=FALSE,' + col('G') + '<=' + C + '$M$2,' + col('I') + '=FALSE),1,TRUE),"未入金者はいません")');
+  sh.getRange('G8:M8').setValues([['ANNIN No.', '姓名', '所属', '開始年月', '入金月数', '最終入金月', 'ステータス']]).setFontWeight('bold').setBackground('#fdecea');
+  const notExcluded = STATUS.excluded.map(function (st) { return ',' + col('K') + '<>"' + st + '"'; }).join('');
+  sh.getRange('G9').setFormula('=IFERROR(SORT(FILTER({' + C + 'A2:F,' + C + 'K2:K},' + col('A') + '<>"",' + col('H') + '=FALSE,' + col('G') + '<=' + C + '$M$2,' + col('I') + '=FALSE' + notExcluded + '),1,TRUE),"未入金者はいません")');
 
   sh.setColumnWidth(1, 200);
   sh.setColumnWidth(2, 110);
   sh.setColumnWidth(3, 300);
   sh.setColumnWidths(4, 3, 80);
   sh.setColumnWidth(6, 24);
-  sh.setColumnWidths(7, 6, 95);
+  sh.setColumnWidths(7, 7, 95);
   sh.setFrozenRows(4);
 }
 
@@ -678,7 +1128,7 @@ function isDate_(v) {
 
 /** 2026/10・2026-10・2026年10月・日付 → "2026/10"。読めなければ "" */
 function normYm_(v) {
-  if (isDate_(v)) return v.getFullYear() + '/' + ('0' + (v.getMonth() + 1)).slice(-2);
+  if (isDate_(v)) return Utilities.formatDate(v, tz_(), 'yyyy/MM');
   const m = toHalf_(String(v === null || v === undefined ? '' : v)).match(/(\d{4})\s*[\/\-年.]\s*(\d{1,2})/);
   if (!m) return '';
   const mo = Number(m[2]);
@@ -688,6 +1138,54 @@ function normYm_(v) {
 
 function currentYm_() {
   return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM');
+}
+
+/**
+ * スプレッドシートのタイムゾーン。シートの日付はこのタイムゾーンで読み書きする
+ * （スクリプトと違うタイムゾーンで日付を作ると、2026/10/01 が 2026/09/30 になるため）。
+ */
+let TZ_CACHE_ = '';
+function tz_() {
+  if (TZ_CACHE_) return TZ_CACHE_;
+  try {
+    TZ_CACHE_ = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || 'Asia/Tokyo';
+  } catch (e) {
+    TZ_CACHE_ = 'Asia/Tokyo';
+  }
+  return TZ_CACHE_;
+}
+
+/** "2026/10" → スプレッドシートのタイムゾーンで 2026/10/01 0:00 の日付 */
+function ymToDate_(ym) {
+  return Utilities.parseDate(ym + '/01', tz_(), 'yyyy/MM/dd');
+}
+
+/** 着金日などの日付 → "2026/10/05"（文字列はそのまま） */
+function fmtDay_(v) {
+  if (isDate_(v)) return Utilities.formatDate(v, tz_(), 'yyyy/MM/dd');
+  return String(v === null || v === undefined ? '' : v).trim();
+}
+
+/** 月のセルの値が「入金済み」か（チェックボックスの TRUE か、STATUS.paid のステータス） */
+function isPaidValue_(v) {
+  return v === true || (typeof v === 'string' && STATUS.paid.indexOf(v.trim()) >= 0);
+}
+
+/** 月のセルの値 → ステータス文字列（チェックボックスの TRUE は「入金あり」、FALSE は空欄） */
+function statusOf_(v) {
+  if (v === true) return '入金あり';
+  if (v === false || v === null || v === undefined) return '';
+  return String(v).trim();
+}
+
+/** 受領管理がステータス形式（変換済み）か。変換すると「支払方法」の列ができる */
+function isStatusMode_(table) {
+  return table.col.method !== undefined;
+}
+
+/** 数式に埋め込む、入金済みのステータスの配列 {"当月開始","入金あり","サブスク"} */
+function paidArray_() {
+  return '{' + STATUS.paid.map(function (s) { return '"' + s + '"'; }).join(',') + '}';
 }
 
 function toNo_(v) {
@@ -776,6 +1274,15 @@ const APP_HTML_ = `<!doctype html>
   .paid { color:var(--ok); font-weight:700; }
   .unpaid { color:var(--muted); }
   .small { font-size:12px; color:var(--muted); }
+  .badge { display:inline-block; white-space:nowrap; padding:2px 8px; border-radius:999px; font-size:13px; font-weight:600; border:1px solid var(--line); }
+  .person { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-top:8px; }
+  .person .top { display:flex; justify-content:space-between; gap:8px; align-items:flex-start; }
+  .controls { display:grid; grid-template-columns:1.2fr 1fr 1.2fr auto; gap:6px; margin-top:8px; align-items:end; }
+  .controls select, .controls input { padding:7px 8px; font-size:15px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chips button { padding:5px 10px; border-radius:999px; border:1px solid var(--line); font-size:13px; cursor:pointer; }
+  .note { background:#fff8e1; color:#7a5b00; padding:8px 10px; border-radius:8px; font-size:13px; margin-bottom:10px; }
+  @media (max-width:520px) { .controls { grid-template-columns:1fr 1fr; } }
   @media (max-width:520px) { .grid { grid-template-columns:1fr; } .hide-sm { display:none; } }
 </style>
 </head>
@@ -807,6 +1314,7 @@ const APP_HTML_ = `<!doctype html>
         </div>
         <div><label class="req">⑤ 開始月</label><input name="start" type="month" required></div>
         <div><label>性別（任意）</label><select name="gender" id="genderSel"><option value="">－</option></select></div>
+        <div><label>支払方法（任意）</label><select name="method" id="methodSel"><option value="">－</option></select></div>
       </div>
     </div>
     <div class="card">
@@ -831,10 +1339,11 @@ const APP_HTML_ = `<!doctype html>
   </form>
 
   <div id="pane-pay" style="display:none">
+    <div class="note" id="modeNote" style="display:none">20_受領管理はまだチェックボックス形式です。当月開始・入金あり・サブスクは「チェックあり」、それ以外は「チェックなし」として記録されます（支払方法・着金日は記録されません）。メニュー「ANNIN管理 → 受領管理をステータス形式に変換」を実行すると、ステータスのまま記録できます。</div>
     <div class="card">
-      <h2>探してチェック</h2>
+      <h2>探して入力</h2>
       <div class="row">
-        <div><label>対象月</label><select id="monthSel"></select></div>
+        <div><label>対象月</label><select id="monthSel" onchange="if(lastResults.length)doSearch()"></select></div>
       </div>
       <div class="row" style="margin-top:10px">
         <div><label>ANNIN No. または 名前・カナ</label><input id="q" placeholder="例：123 / 山田 / ヤマダ" onkeydown="if(event.key==='Enter'){event.preventDefault();doSearch();}"></div>
@@ -843,10 +1352,15 @@ const APP_HTML_ = `<!doctype html>
       <div id="results" style="margin-top:12px"></div>
     </div>
     <div class="card">
-      <h2>まとめてチェック</h2>
+      <h2>まとめて入力</h2>
       <label>ANNIN No.（改行・カンマ・空白区切りで貼り付け）</label>
       <textarea id="bulk" placeholder="12&#10;45&#10;1203"></textarea>
-      <div style="margin-top:10px"><button class="btn" type="button" id="bulkBtn" onclick="doBulk()">対象月に入金済みチェックを付ける</button></div>
+      <div class="grid" style="margin-top:10px">
+        <div><label>ステータス</label><select id="bulkStatus"></select></div>
+        <div><label>支払方法（任意）</label><select id="bulkMethod"></select></div>
+        <div><label>着金日（任意）</label><input id="bulkDate" type="date"></div>
+      </div>
+      <div style="margin-top:10px"><button class="btn" type="button" id="bulkBtn" onclick="doBulk()">対象月にまとめて入れる</button></div>
     </div>
   </div>
 </div>
@@ -881,6 +1395,10 @@ function init(d) {
   }).join('');
   document.getElementById('genderSel').innerHTML += d.genders.map(function (g) { return '<option>' + esc(g) + '</option>'; }).join('');
   document.getElementById('typeSel').innerHTML = d.accountTypes.map(function (g) { return '<option>' + esc(g) + '</option>'; }).join('');
+  document.getElementById('methodSel').innerHTML += d.methods.map(function (g) { return '<option>' + esc(g) + '</option>'; }).join('');
+  document.getElementById('bulkStatus').innerHTML = statusOptions('入金あり', false);
+  document.getElementById('bulkMethod').innerHTML = methodOptions('');
+  document.getElementById('modeNote').style.display = d.statusMode ? 'none' : '';
   document.querySelector('[name=start]').value = d.currentMonth.replace('/', '-');
   var sel = document.getElementById('monthSel');
   var months = d.months.slice();
@@ -921,6 +1439,26 @@ function submitReg(ev, force) {
 
 function month() { return document.getElementById('monthSel').value; }
 
+function statusOptions(selected, withBlank) {
+  return (withBlank ? '<option value="">（空欄）</option>' : '') + INIT.statuses.map(function (s) {
+    return '<option' + (s === selected ? ' selected' : '') + '>' + esc(s) + '</option>';
+  }).join('');
+}
+function methodOptions(selected) {
+  return '<option value="">支払方法：変えない</option>' + INIT.methods.map(function (m) {
+    return '<option' + (m === selected ? ' selected' : '') + '>' + esc(m) + '</option>';
+  }).join('');
+}
+function badge(status) {
+  if (!status) return '<span class="badge" style="color:var(--muted)">未入力</span>';
+  var c = INIT.statusColors[status] || ['#fff', '#1f2328'];
+  return '<span class="badge" style="background:' + c[0] + ';color:' + c[1] + ';border-color:' + c[0] + '">' + esc(status) + '</span>';
+}
+function today() {
+  var d = new Date();
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+}
+
 function doSearch() {
   clearMsg();
   var q = document.getElementById('q').value.trim();
@@ -933,22 +1471,38 @@ function renderResults(list) {
   lastResults = list;
   var box = document.getElementById('results');
   if (!list.length) { box.innerHTML = '<div class="small">見つかりませんでした</div>'; return; }
-  box.innerHTML = '<div class="small">' + esc(month()) + ' の入金状況（' + list.length + '件' + (list.length >= 50 ? '・先頭50件' : '') + '）</div>' +
-    '<table><tr><th>No.</th><th>名前</th><th class="hide-sm">所属</th><th class="hide-sm">状態</th><th>' + esc(month()) + '</th></tr>' +
+  box.innerHTML = '<div class="small">' + esc(month()) + ' のステータス（' + list.length + '件' + (list.length >= 50 ? '・先頭50件' : '') + '）</div>' +
     list.map(function (r, i) {
-      var btn = !r.inPayment ? '<span class="small">受領管理に行なし</span>' :
-        r.paid ? '<span class="paid">✓ 入金済</span> <button class="btn sub" style="padding:4px 8px;font-size:12px" onclick="toggle(' + i + ', false)">取消</button>'
-               : '<button class="btn" style="padding:6px 12px;font-size:13px" onclick="toggle(' + i + ', true)">入金済にする</button>';
-      return '<tr><td>' + r.no + '</td><td>' + esc(r.name) + '<div class="small">' + esc(r.kana) + '</div></td>' +
-        '<td class="hide-sm">' + esc(r.office) + '</td><td class="hide-sm">' + esc(r.status) + '<div class="small">入金' + r.paidCount + 'ヶ月</div></td><td>' + btn + '</td></tr>';
-    }).join('') + '</table>';
+      var head = '<div class="top"><div><b>No.' + r.no + '　' + esc(r.name) + '</b><div class="small">' + esc(r.kana) + '　' + esc(r.office) +
+        '　' + esc(r.start) + '開始　入金' + r.paidCount + 'ヶ月　' + esc(r.status) + (r.method ? '　' + esc(r.method) : '') + '</div></div>' +
+        '<div>' + esc(month()) + '<br>' + badge(r.monthStatus) + '</div></div>';
+      if (!r.inPayment) return '<div class="person">' + head + '<div class="small">20_受領管理に行がありません（メニュー「受領管理の色分け・集計・数式を整える」で追加されます）</div></div>';
+      var chips = '<div class="chips">' + QUICK.map(function (s, k) {
+        var c = INIT.statusColors[s];
+        return '<button type="button" style="background:' + c[0] + ';color:' + c[1] + '" onclick="quickSet(' + i + ',' + k + ')">' + esc(s) + '</button>';
+      }).join('') + '</div>';
+      var controls = '<div class="controls">' +
+        '<select id="st' + i + '">' + statusOptions(r.monthStatus || '入金あり', true) + '</select>' +
+        '<select id="me' + i + '"' + (INIT.statusMode ? '' : ' disabled') + '>' + methodOptions('') + '</select>' +
+        '<input id="dt' + i + '" type="date"' + (INIT.statusMode ? '' : ' disabled') + ' title="着金日（任意）">' +
+        '<button class="btn" type="button" style="padding:8px 14px" onclick="saveRow(' + i + ')">保存</button></div>';
+      return '<div class="person">' + head + chips + controls + '</div>';
+    }).join('');
 }
 
-function toggle(i, paid) {
+var QUICK = ['入金あり', 'サブスク', '未入金', '休止', '退所'];
+function quickSet(i, k) {
+  document.getElementById('st' + i).value = QUICK[k];
+  saveRow(i);
+}
+
+function saveRow(i) {
   var r = lastResults[i];
-  if (!paid && !confirm('No.' + r.no + ' ' + r.name + ' の ' + month() + ' の入金チェックを外しますか？')) return;
-  call('setPayment', [r.no, month(), paid], function () {
-    showMsg('No.' + r.no + ' ' + r.name + '：' + month() + ' を' + (paid ? '入金済みにしました' : '未入金に戻しました'), true);
+  var status = document.getElementById('st' + i).value;
+  var extra = { method: document.getElementById('me' + i).value, date: document.getElementById('dt' + i).value };
+  if (!status && !confirm('No.' + r.no + ' ' + r.name + ' の ' + month() + ' を空欄に戻しますか？')) return;
+  call('setPayment', [r.no, month(), status, extra], function (res) {
+    showMsg('No.' + r.no + ' ' + r.name + '：' + month() + ' を「' + (status || '空欄') + '」にしました' + (res.done.length ? '' : '（変更なし）'), true);
     doSearch();
   });
 }
@@ -957,12 +1511,14 @@ function doBulk() {
   clearMsg();
   var text = document.getElementById('bulk').value;
   var btn = document.getElementById('bulkBtn');
-  if (!confirm(month() + ' に入金済みチェックを付けます。よろしいですか？')) return;
+  var status = document.getElementById('bulkStatus').value;
+  var extra = { method: document.getElementById('bulkMethod').value, date: document.getElementById('bulkDate').value };
+  if (!confirm(month() + ' に「' + status + '」をまとめて入れます。よろしいですか？')) return;
   btn.disabled = true;
-  call('setPaymentsBulk', [text, month()], function (res) {
-    var lines = [res.month + '：' + res.done.length + '件にチェックを付けました'];
+  call('setPaymentsBulk', [text, month(), status, extra], function (res) {
+    var lines = [res.month + '：' + res.done.length + '件を「' + res.status + '」にしました'];
     if (res.done.length) lines.push('　→ ' + res.done.join(', '));
-    if (res.already.length) lines.push('すでにチェック済み：' + res.already.join(', '));
+    if (res.already.length) lines.push('すでに「' + res.status + '」：' + res.already.join(', '));
     if (res.notFound.length) lines.push('見つからない番号：' + res.notFound.join(', '));
     showMsg(lines.join('\\n'), res.notFound.length === 0);
     if (!res.notFound.length) document.getElementById('bulk').value = '';

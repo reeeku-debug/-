@@ -91,7 +91,15 @@ function load(ss) {
       CopyPasteType: { PASTE_FORMAT: 'f', PASTE_DATA_VALIDATION: 'v' },
     },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
-    Utilities: { formatDate: () => '2026/10' },
+    Utilities: {
+      formatDate: (d, tz, fmt) => fmt
+        .replace('yyyy', d.getFullYear())
+        .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
+        .replace('dd', String(d.getDate()).padStart(2, '0'))
+        .replace('HH', String(d.getHours()).padStart(2, '0'))
+        .replace('mm', String(d.getMinutes()).padStart(2, '0')),
+      parseDate: (str) => { const [y, m, d] = str.split('/').map(Number); return new Date(y, m - 1, d); },
+    },
   };
   vm.createContext(ctx);
   vm.runInContext(SOURCE, ctx);
@@ -302,7 +310,7 @@ test('入金ダッシュボードを作成できる（数式の括弧・参照�
   assert.match(calc.formulasA1['5,13'], /MATCH\(M1,ARRAYFORMULA\(.*'20_受領管理'!A1:J1/);
   assert.equal(calc.formulasA1['1,13'], "='01_入金ダッシュボード'!B4");
   // ダッシュボード：未入金者一覧と事務所別
-  assert.match(dash.formulasA1['9,7'], /^=IFERROR\(SORT\(FILTER\('_入金集計'!A2:F,/);
+  assert.match(dash.formulasA1['9,7'], /^=IFERROR\(SORT\(FILTER\(\{'_入金集計'!A2:F,'_入金集計'!K2:K\},/);
   assert.match(dash.formulasA1['20,2'], /"東京"/);
   assert.match(dash.formulasA1['21,2'], /"大阪"/);
 
@@ -320,4 +328,173 @@ test('列番号の文字変換', () => {
   assert.equal(ctx.colLetter_(1), 'A');
   assert.equal(ctx.colLetter_(26), 'Z');
   assert.equal(ctx.colLetter_(39), 'AM');
+});
+
+// ---- ステータス形式への変換 ----
+function shiftKeys(map, fn) {
+  const out = {};
+  Object.keys(map).forEach((k) => { const [a, b] = k.split(',').map(Number); out[fn(a, b).join(',')] = map[k]; });
+  return out;
+}
+function withStructureSupport(ss) {
+  withDashboardSupport(ss);
+  const patch = (sh) => {
+    sh.insertColumnsAfter = (col, n) => {
+      sh.cells.forEach((line) => { if (line && line.length > col) line.splice(col, 0, ...Array(n).fill('')); });
+      sh.formulas = shiftKeys(sh.formulas, (r, c) => [r, c >= col ? c + n : c]);
+      sh.formulasA1 = shiftKeys(sh.formulasA1, (r, c) => [r, c > col ? c + n : c]);
+    };
+    sh.insertRowsBefore = (row, n) => {
+      sh.cells.splice(row - 1, 0, ...Array.from({ length: n }, () => []));
+      sh.formulas = shiftKeys(sh.formulas, (r, c) => [r >= row - 1 ? r + n : r, c]);
+      sh.formulasA1 = shiftKeys(sh.formulasA1, (r, c) => [r >= row ? r + n : r, c]);
+      sh.maxRows += n;
+    };
+    sh.setConditionalFormatRules = (rules) => { sh.cfRules = rules; };
+    sh.setFrozenColumns = () => {};
+    sh.copyTo = () => {
+      const copy = new FakeSheet('copy', sh.cells);
+      copy.setName = (name) => { copy.name = name; ss.sheets[name] = copy; ss.order.push(name); return copy; };
+      copy.hideSheet = () => { copy.hidden = true; };
+      return copy;
+    };
+    return sh;
+  };
+  Object.values(ss.sheets).forEach(patch);
+  const insert = ss.insertSheet;
+  ss.insertSheet = (name, index) => patch(insert(name, index));
+  return ss;
+}
+function makeStatusFixture() {
+  const ledger = new FakeSheet('10_タレント台帳', [
+    ['ANNIN No.', '姓', '名', '姓（カナ）', '名（カナ）', '性別', '開始年月', '所属事務所', '入金月数', '最終入金月', '銀行情報登録', '解約', 'ステータス', '備考'],
+    [1, '本間', '匠', 'ホンマ', 'タクミ', '男', '2026/08', '東京', 2, '', '済', true, '退会', ''],
+    [2, '山本', '心愛', 'ヤマモト', 'ココナ', '女', '2026/08', '大阪', 1, '', '済', false, '要確認', ''],
+    [3, '新井', '花', 'アライ', 'ハナ', '女', new Date(2026, 9, 1), '東京', '', '', '未登録', false, '', ''],
+  ]);
+  const payment = new FakeSheet('20_受領管理', [
+    ['ANNIN No.', '姓名', '所属事務所', '開始年月', '2026/08', '2026/09', '2026/10', '2026/11', '入金月数', '最終入金月', '対象月チェック（ダッシュボードB4連動）'],
+    [1, '本間 匠', '東京', '2026/08', true, true, false, false, 2, '', false],
+    [2, '山本 心愛', '大阪', '2026/08', true, false, false, false, 1, '', false],
+  ], {
+    '1,10': "=IFERROR(INDEX(E2:H2,MATCH('00_ダッシュボード'!$B$4,E$1:H$1,0)),FALSE)",
+    '2,10': "=IFERROR(INDEX(E3:H3,MATCH('00_ダッシュボード'!$B$4,E$1:H$1,0)),FALSE)",
+  });
+  const personal = new FakeSheet('30_個人情報（銀行口座）', [
+    ['※個人情報'],
+    ['ANNIN No.', '姓名', '郵便番号', '住所', '電話番号', '続柄', '銀行名', '支店名', '区分', '口座名義', '口座番号'],
+    [1, '本間 匠', '', '', '', '', '三菱UFJ銀行', '上尾', '普通口座', 'ホンマタクミ', '141216'],
+    [2, '山本 心愛', '', '', '', '', '', '', '', '', ''],
+  ]);
+  const trend = new FakeSheet('50_月次推移', [['年月', '受領者数', '前月差'], ['2026/08', 2, '']]);
+  const sheets = { [ledger.name]: ledger, [payment.name]: payment, [personal.name]: personal, [trend.name]: trend };
+  const ss = withStructureSupport({ sheets, ledger, payment, personal, trend, getSheetByName: (n) => sheets[n] || null });
+  const ctx = loadWithDashboard(ss);
+  ctx.SpreadsheetApp.newConditionalFormatRule = () => chain({});
+  ctx.currentYm_ = () => '2026/10';
+  return { ss, ctx };
+}
+
+test('受領管理をステータス形式に変換：チェック→ステータス・列と集計行の追加・数式の書き直し', () => {
+  const { ss, ctx } = makeStatusFixture();
+  const res = ctx.convertPaymentSheet_(ss);
+  const p = ss.payment;
+
+  // バックアップ
+  assert.match(res.backupName, /^20_受領管理_変換前_/);
+  assert.equal(ss.sheets[res.backupName].hidden, true);
+  assert.equal(ss.sheets[res.backupName].cells[1][4], true);
+
+  // 見出しは11行目（上に集計9行＋空行1行）、開始年月の右に支払方法・着金日
+  const H = 10; // 0-based
+  assert.deepEqual(p.cells[H].slice(0, 13), ['ANNIN No.', '姓名', '所属事務所', '開始年月', '支払方法', '着金日', '2026/08', '2026/09', '2026/10', '2026/11', '入金月数', '最終入金月', '対象月チェック（ダッシュボードB4連動）']);
+  // 解約済みの人：チェックあり→当月開始・入金あり、チェックなし→空欄
+  assert.deepEqual(p.cells[H + 1].slice(6, 10), ['当月開始', '入金あり', '', '']);
+  // 在籍中の人：開始月〜先月のチェックなし→未入金、今月以降→空欄
+  assert.deepEqual(p.cells[H + 2].slice(6, 10), ['当月開始', '未入金', '', '']);
+  assert.equal(res.counts['未入金'], 1);
+  assert.equal(res.counts['当月開始'], 2);
+
+  // 台帳にだけいた No.3 を受領管理・個人情報に追加（開始年月は日付から "2026/10"）
+  assert.deepEqual([...res.added], [3]);
+  assert.deepEqual([...res.addedPersonal], [3]);
+  assert.deepEqual(p.cells[H + 3].slice(0, 4), [3, '新井 花', '東京', '2026/10']);
+  assert.deepEqual(p.cells[H + 3].slice(6, 10), ['', '', '', '']);
+  assert.deepEqual(ss.personal.cells[4].slice(0, 2), [3, '新井 花']);
+
+  // 上の集計行（ラベルは着金日の列、数式は月の列）
+  assert.equal(p.cells[0][5], '入金済み計');
+  assert.equal(p.cells[1][5], '当月開始');
+  assert.equal(p.formulasA1['1,7'], '=SUM(COUNTIF(G12:G,{"当月開始","入金あり","サブスク"}))');
+  assert.equal(p.formulasA1['2,7'], '=COUNTIF(G12:G,"当月開始")');
+
+  // 行ごとの数式
+  assert.equal(p.formulasA1['12,11'], '=SUM(COUNTIF(G12:J12,{"当月開始","入金あり","サブスク"}))');
+  assert.match(p.formulasA1['12,12'], /LOOKUP\(2,1\/ISNUMBER\(MATCH\(G12:J12,.*G\$11:J\$11/);
+  assert.equal(p.formulasA1['14,13'], "=IFERROR(ISNUMBER(MATCH(INDEX(G14:J14,MATCH('00_ダッシュボード'!$B$4,G$11:J$11,0)),{\"当月開始\",\"入金あり\",\"サブスク\"},0)),FALSE)");
+
+  // 台帳は ANNIN No. で探す数式に
+  assert.equal(ss.ledger.formulasA1['2,9'], "=IFERROR(INDEX('20_受領管理'!$K:$K,MATCH($A2,'20_受領管理'!$A:$A,0)),0)");
+  assert.equal(ss.ledger.formulasA1['4,13'], "=IF($L4=TRUE,\"退会\",IF(IFERROR(INDEX('20_受領管理'!$M:$M,MATCH($A4,'20_受領管理'!$A:$A,0)),FALSE)=TRUE,\"課金中\",\"要確認\"))");
+  assert.match(ss.ledger.formulasA1['3,11'], /INDEX\('30_個人情報（銀行口座）'!\$G:\$G,MATCH\(\$A3,'30_個人情報（銀行口座）'!\$A:\$A,0\)\)/);
+
+  // 50_月次推移
+  assert.deepEqual(ss.trend.cells.slice(1, 5).map((r) => r[0]), ['2026/08', '2026/09', '2026/10', '2026/11']);
+  assert.equal(ss.trend.formulasA1['2,2'], "=COUNTIF('20_受領管理'!G12:G,TRUE)+SUM(COUNTIF('20_受領管理'!G12:G,{\"当月開始\",\"入金あり\",\"サブスク\"}))");
+
+  Object.values(p.formulasA1).concat(Object.values(ss.ledger.formulasA1)).forEach(checkFormula);
+  assert.throws(() => ctx.convertPaymentSheet_(ss), /すでにステータス形式/);
+});
+
+test('ステータス形式：アプリからステータス・支払方法・着金日を入れる／検索で見える', () => {
+  const { ss, ctx } = makeStatusFixture();
+  ctx.convertPaymentSheet_(ss);
+  const p = ss.payment;
+  const res = ctx.setPayment(2, '2026/10', 'サブスク', { method: '振込', date: '2026-10-05' });
+  assert.deepEqual([...res.done], [2]);
+  assert.equal(p.cells[12][8], 'サブスク');
+  assert.equal(p.cells[12][4], '振込');
+  assert.equal(p.cells[12][5], '2026/10/05');
+  const hit = ctx.searchTalents('2', '2026/10')[0];
+  assert.equal(hit.monthStatus, 'サブスク');
+  assert.equal(hit.paid, true);
+  assert.equal(hit.method, '振込');
+
+  const bulk = ctx.setPaymentsBulk('1 2 3 99', '2026/10', '休止');
+  assert.deepEqual([...bulk.done], [1, 2, 3]);
+  assert.deepEqual([...bulk.notFound], ['99']);
+  assert.equal(p.cells[13][8], '休止');
+  assert.equal(ctx.searchTalents('3', '2026/10')[0].paid, false);
+  // 空欄に戻す・選べないステータス
+  ctx.setPayment(1, '2026/10', '');
+  assert.equal(p.cells[11][8], '');
+  assert.throws(() => ctx.setPayment(1, '2026/10', '入金'), /選べません/);
+  assert.throws(() => ctx.setPayment(1, '2026/10', '入金あり', { method: '現金' }), /支払方法/);
+
+  // 新規登録：月の列は空欄、支払方法も入る
+  const reg = ctx.registerTalent({ ...FORM, method: 'スクエア' });
+  assert.equal(reg.no, 4);
+  const row = p.cells[14];
+  assert.deepEqual(row.slice(0, 5), [4, '田中 花子', '大阪', '2026/10', 'スクエア']);
+  assert.deepEqual(row.slice(6, 10), ['', '', '', '']);
+});
+
+test('ステータス形式：ダッシュボードと12ヶ月の列追加', () => {
+  const { ss, ctx } = makeStatusFixture();
+  ctx.convertPaymentSheet_(ss);
+  ctx.buildPaymentDashboard();
+  const dash = ss.sheets['01_入金ダッシュボード'];
+  const calc = ss.sheets['_入金集計'];
+  Object.values(dash.formulasA1).concat(Object.values(calc.formulasA1)).forEach(checkFormula);
+  assert.match(calc.formulasA1['2,9'], /ISNUMBER\(MATCH\(INDEX\('20_受領管理'!A12:M,0,MAX\(1,\$M\$5\)\),\{"当月開始","入金あり","サブスク"\},0\)\)/);
+  assert.match(dash.formulasA1['8,2'], /'_入金集計'!K2:K,"<>休止"/);
+  assert.ok(dash.cells.some((r) => r && r[0] === '■ ステータス別（対象月）'));
+
+  const added = ctx.addMonths_(ss, 12);
+  assert.equal(added[0], '2026/12');
+  assert.equal(added[11], '2027/11');
+  const hdr = ss.payment.cells[10];
+  assert.deepEqual(hdr.slice(9, 12), ['2026/11', '2026/12', '2027/01']);
+  assert.equal(hdr[22], '入金月数');
+  assert.equal(ss.payment.formulasA1['12,23'], '=SUM(COUNTIF(G12:V12,{"当月開始","入金あり","サブスク"}))');
 });
