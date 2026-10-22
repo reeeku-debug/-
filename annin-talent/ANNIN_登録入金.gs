@@ -98,6 +98,7 @@ function onOpen() {
     .addItem('受領管理をステータス形式に変換（最初に1回だけ）', 'convertPaymentSheet')
     .addItem('受領管理の色分け・集計・数式を整える', 'refreshPaymentSheet')
     .addItem('受領管理に次の12ヶ月の列を追加', 'addNextYearMonths')
+    .addItem('入金ありの人の支払方法を「振込」にする（空欄の人だけ）', 'fillTransferMethod')
     .addToUi();
 }
 
@@ -573,6 +574,39 @@ function addNextYearMonths() {
   const added = withLock_(function () { return addMonths_(ss, 12); });
   SpreadsheetApp.getUi().alert('月の列を追加しました', added[0] + '〜' + added[added.length - 1] + ' の列を追加しました。',
     SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function fillTransferMethod() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const ans = ui.alert('支払方法を「振込」にする',
+    '20_受領管理で、どこかの月が「入金あり」になっていて支払方法が空欄の人を、まとめて「振込」にします。\n'
+    + '（支払方法がすでに入っている人・サブスクだけの人は変えません）よろしいですか？', ui.ButtonSet.YES_NO);
+  if (ans !== ui.Button.YES) return;
+  const res = withLock_(function () { return fillMethodForPaid_(ss, '振込'); });
+  ui.alert('支払方法を「振込」にしました', res.length + '人の支払方法を「振込」にしました。', ui.ButtonSet.OK);
+}
+
+/** どこかの月が「入金あり」で、支払方法が空欄の人の支払方法を method にする。変えた ANNIN No. を返す */
+function fillMethodForPaid_(ss, method) {
+  const sh = sheet_(ss, SHEET.payment);
+  const pay = readTable_(sh);
+  if (!isStatusMode_(pay)) throw new Error('先にメニューの「受領管理をステータス形式に変換」を実行してください');
+  const months = monthColumns_(pay);
+  const changed = [];
+  const col = pay.col.method;
+  const first = pay.headerRow + 1;
+  const rows = sh.getLastRow() - pay.headerRow;
+  if (rows < 1) return changed;
+  const values = sh.getRange(first, col + 1, rows, 1).getValues();
+  pay.rows.forEach(function (row) {
+    if (String(row.values[col]).trim() !== '') return;
+    if (!months.some(function (m) { return statusOf_(row.values[m.index]) === '入金あり'; })) return;
+    values[row.rowNumber - first][0] = method;
+    changed.push(toNo_(row.values[0]));
+  });
+  if (changed.length) sh.getRange(first, col + 1, rows, 1).setValues(values);
+  return changed;
 }
 
 function refreshMessage_(res) {
@@ -1385,8 +1419,9 @@ const APP_HTML_ = `<!doctype html>
       <h2>まとめて入力</h2>
       <label>ANNIN No.（改行・カンマ・空白区切りで貼り付け）</label>
       <textarea id="bulk" placeholder="12&#10;45&#10;1203"></textarea>
+      <div class="chips" id="bulkPresets"></div>
       <div class="grid" style="margin-top:10px">
-        <div><label>ステータス</label><select id="bulkStatus"></select></div>
+        <div><label>ステータス</label><select id="bulkStatus" onchange="if(this.value!=='入金あり')document.getElementById('bulkMethod').value=''"></select></div>
         <div><label>支払方法（任意）</label><select id="bulkMethod"></select></div>
         <div><label>着金日（任意）</label><input id="bulkDate" type="date"></div>
       </div>
@@ -1427,7 +1462,11 @@ function init(d) {
   document.getElementById('typeSel').innerHTML = d.accountTypes.map(function (g) { return '<option>' + esc(g) + '</option>'; }).join('');
   document.getElementById('methodSel').innerHTML += d.methods.map(function (g) { return '<option>' + esc(g) + '</option>'; }).join('');
   document.getElementById('bulkStatus').innerHTML = statusOptions('入金あり', false);
-  document.getElementById('bulkMethod').innerHTML = methodOptions('');
+  document.getElementById('bulkMethod').innerHTML = methodOptions(d.statusMode ? '振込' : '');
+  document.getElementById('bulkPresets').innerHTML = QUICK.slice(0, 2).map(function (q, k) {
+    var c = d.statusColors[q.status];
+    return '<button type="button" style="background:' + c[0] + ';color:' + c[1] + '" onclick="bulkPreset(' + k + ')">' + esc(q.label) + 'にする</button>';
+  }).join('');
   document.getElementById('modeNote').style.display = d.statusMode ? 'none' : '';
   document.querySelector('[name=start]').value = d.currentMonth.replace('/', '-');
   var sel = document.getElementById('monthSel');
@@ -1507,9 +1546,9 @@ function renderResults(list) {
         '　' + esc(r.start) + '開始　入金' + r.paidCount + 'ヶ月　' + esc(r.status) + (r.method ? '　' + esc(r.method) : '') + '</div></div>' +
         '<div>' + esc(month()) + '<br>' + badge(r.monthStatus) + '</div></div>';
       if (!r.inPayment) return '<div class="person">' + head + '<div class="small">20_受領管理に行がありません（メニュー「受領管理の色分け・集計・数式を整える」で追加されます）</div></div>';
-      var chips = '<div class="chips">' + QUICK.map(function (s, k) {
-        var c = INIT.statusColors[s];
-        return '<button type="button" style="background:' + c[0] + ';color:' + c[1] + '" onclick="quickSet(' + i + ',' + k + ')">' + esc(s) + '</button>';
+      var chips = '<div class="chips">' + QUICK.map(function (q, k) {
+        var c = INIT.statusColors[q.status];
+        return '<button type="button" style="background:' + c[0] + ';color:' + c[1] + '" onclick="quickSet(' + i + ',' + k + ')">' + esc(q.label) + '</button>';
       }).join('') + '</div>';
       var controls = '<div class="controls">' +
         '<select id="st' + i + '">' + statusOptions(r.monthStatus || '入金あり', true) + '</select>' +
@@ -1520,9 +1559,21 @@ function renderResults(list) {
     }).join('');
 }
 
-var QUICK = ['入金あり', 'サブスク', '未入金', '休止', '退所'];
+// 「振込」＝その月を入金あり＋支払方法を振込にする。ほかはステータスだけ
+var QUICK = [
+  { label: '振込', status: '入金あり', method: '振込' },
+  { label: 'サブスク', status: 'サブスク', method: '' },
+  { label: '未入金', status: '未入金', method: '' },
+  { label: '休止', status: '休止', method: '' },
+  { label: '退所', status: '退所', method: '' },
+];
+function bulkPreset(k) {
+  document.getElementById('bulkStatus').value = QUICK[k].status;
+  document.getElementById('bulkMethod').value = INIT.statusMode ? QUICK[k].method : '';
+}
 function quickSet(i, k) {
-  document.getElementById('st' + i).value = QUICK[k];
+  document.getElementById('st' + i).value = QUICK[k].status;
+  if (INIT.statusMode && QUICK[k].method) document.getElementById('me' + i).value = QUICK[k].method;
   saveRow(i);
 }
 

@@ -507,3 +507,16 @@ test('ステータス形式：ダッシュボードと12ヶ月の列追加', () 
   assert.equal(hdr[22], '入金月数');
   assert.equal(ss.payment.formulasA1['12,23'], '=SUM(COUNTIF(G12:V12,{"入金あり","サブスク"}))');
 });
+
+test('入金ありの人の支払方法を一括で振込にする（空欄の人だけ）', () => {
+  const { ss, ctx } = makeStatusFixture();
+  ctx.convertPaymentSheet_(ss);
+  const p = ss.payment;
+  ctx.setPayment(2, '2026/10', 'サブスク', { method: 'スクエア' });
+  const changed = ctx.fillMethodForPaid_(ss, '振込');
+  assert.deepEqual([...changed], [1]); // No.2 はスクエアのまま、No.3 は入金ありの月がない
+  assert.equal(p.cells[11][4], '振込');
+  assert.equal(p.cells[12][4], 'スクエア');
+  assert.equal(p.cells[13][4], '');
+  assert.deepEqual([...ctx.fillMethodForPaid_(ss, '振込')], []);
+});
