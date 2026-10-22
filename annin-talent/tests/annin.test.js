@@ -520,3 +520,28 @@ test('入金ありの人の支払方法を一括で振込にする（空欄の�
   assert.equal(p.cells[13][4], '');
   assert.deepEqual([...ctx.fillMethodForPaid_(ss, '振込')], []);
 });
+
+test('新規登録で開始月の入金も入る（ステータス形式・チェックボックス形式）', () => {
+  const { ss, ctx } = makeStatusFixture();
+  ctx.convertPaymentSheet_(ss);
+  const res = ctx.registerTalent({ ...FORM, startPayment: 'transfer' });
+  assert.equal(res.startNote, '2026/10 を「入金あり」にしました');
+  const row = ss.payment.cells[14];
+  assert.equal(row[4], '振込');
+  assert.deepEqual(row.slice(6, 10), ['', '', '入金あり', '']);
+  // 支払方法を選んでいればそちらを使う
+  ctx.registerTalent({ ...FORM, lastName: '佐藤', startPayment: 'subscription', method: 'スクエア' });
+  assert.equal(ss.payment.cells[15][4], 'スクエア');
+  assert.equal(ss.payment.cells[15][8], 'サブスク');
+  // 列のない月
+  const late = ctx.registerTalent({ ...FORM, lastName: '鈴木', start: '2027/05', startPayment: 'transfer' });
+  assert.match(late.startNote, /2027\/05 の列がない/);
+  assert.throws(() => ctx.registerTalent({ ...FORM, lastName: '高橋', startPayment: 'x' }), /開始月の入金/);
+
+  // チェックボックス形式：入金あり → チェックあり
+  const ss2 = makeSpreadsheet();
+  const ctx2 = load(ss2);
+  ctx2.registerTalent({ ...FORM, startPayment: 'transfer' });
+  assert.equal(ss2.payment.cells[3][6], true);
+  assert.equal(ss2.payment.cells[3][8], '2026/10');
+});

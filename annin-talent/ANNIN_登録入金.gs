@@ -55,6 +55,17 @@ const STATUS = {
   },
 };
 
+/**
+ * 新規登録で選べる「開始月の入金」。登録と同時に、20_受領管理の開始月にこのステータスを入れる。
+ * method：支払方法が空欄のときに入れる支払方法
+ */
+const START_PAYMENTS = [
+  { key: 'transfer', label: '入金あり（振込）', status: '入金あり', method: '振込' },
+  { key: 'subscription', label: 'サブスク', status: 'サブスク', method: '' },
+  { key: 'start', label: '当月開始（入会金のみ）', status: '当月開始', method: '' },
+  { key: 'none', label: '入れない', status: '', method: '' },
+];
+
 /** アプリで選べる支払方法 */
 const PAY_METHODS = ['振込', 'スクエア', 'JMS'];
 
@@ -133,6 +144,7 @@ function getInitData() {
     statusColors: STATUS.colors,
     methods: PAY_METHODS,
     statusMode: isStatusMode_(pay),
+    startPayments: START_PAYMENTS.map(function (x) { return { key: x.key, label: x.label }; }),
   };
 }
 
@@ -173,9 +185,20 @@ function registerTalent(form) {
       no: no, fullName: fullName, zip: f.zip, address: f.address, phone: f.phone,
       bankName: f.bankName, branch: f.branch, accountType: f.accountType, holder: f.holder, accountNo: f.accountNo,
     });
+    // 開始月の入金：受領管理の開始月にステータスを入れる（その月の列がなければ入れずに知らせる）
+    let startNote = '';
+    const sp = START_PAYMENTS.filter(function (x) { return x.key === f.startPayment; })[0];
+    if (sp && sp.status) {
+      if (findMonthCol_(readTable_(sheet_(ss, SHEET.payment)), f.start)) {
+        setPayments_(ss, [no], f.start, sp.status, { method: f.method || sp.method });
+        startNote = f.start + ' を「' + sp.status + '」にしました';
+      } else {
+        startNote = '20_受領管理に ' + f.start + ' の列がないため、開始月の入金は入れていません';
+      }
+    }
     ensureCalcRows_(ss);
     SpreadsheetApp.flush();
-    return { ok: true, no: no, fullName: fullName, nextNo: nextAnninNo_(ss) };
+    return { ok: true, no: no, fullName: fullName, nextNo: nextAnninNo_(ss), startNote: startNote };
   });
 }
 
@@ -506,6 +529,7 @@ function cleanForm_(form) {
     holder: s(form.holder),
     accountNo: toHalf_(s(form.accountNo)).replace(/[\s\-]/g, ''),
     method: s(form.method),
+    startPayment: s(form.startPayment) || 'none',
   };
   const errors = [];
   if (f.no !== '' && !/^\d+$/.test(f.no)) errors.push('ANNIN No. は数字で入力してください（空欄なら自動で振ります）');
@@ -517,6 +541,7 @@ function cleanForm_(form) {
   if (f.gender && GENDERS.indexOf(f.gender) < 0) errors.push('性別の値が正しくありません');
   if (f.accountType && ACCOUNT_TYPES.indexOf(f.accountType) < 0) errors.push('口座区分の値が正しくありません');
   if (f.method && PAY_METHODS.indexOf(f.method) < 0) errors.push('支払方法の値が正しくありません');
+  if (!START_PAYMENTS.some(function (x) { return x.key === f.startPayment; })) errors.push('開始月の入金の値が正しくありません');
   if (f.accountNo && !/^\d+$/.test(f.accountNo)) errors.push('口座番号は数字で入力してください');
   if (errors.length) throw new Error(errors.join('\n'));
   // 読み方はカタカナにそろえる（ひらがなで入力されても OK）
@@ -1318,8 +1343,8 @@ const APP_HTML_ = `<!doctype html>
   .req::after { content:" *"; color:var(--ng); }
   input, select, textarea { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:6px; font-size:16px; background:#fff; color:var(--text); }
   textarea { min-height:70px; }
-  .seg { display:flex; gap:8px; }
-  .seg label { flex:1; margin:0; padding:9px; border:1px solid var(--line); border-radius:6px; text-align:center; color:var(--text); cursor:pointer; font-size:15px; }
+  .seg { display:flex; flex-wrap:wrap; gap:8px; }
+  .seg label { flex:1 1 40%; margin:0; padding:9px; border:1px solid var(--line); border-radius:6px; text-align:center; color:var(--text); cursor:pointer; font-size:15px; }
   .seg input { display:none; }
   .seg input:checked + span { font-weight:700; color:var(--accent); }
   .seg label:has(input:checked) { border-color:var(--accent); background:#eef3fe; }
@@ -1379,6 +1404,7 @@ const APP_HTML_ = `<!doctype html>
         <div><label class="req">⑤ 開始月</label><input name="start" type="month" required></div>
         <div><label>性別（任意）</label><select name="gender" id="genderSel"><option value="">－</option></select></div>
         <div><label>支払方法（任意）</label><select name="method" id="methodSel"><option value="">－</option></select></div>
+        <div class="full"><label>⑤ 開始月の入金（登録と同時に 20_受領管理 の開始月に入ります）</label><div class="seg" id="startPaySeg"></div></div>
       </div>
     </div>
     <div class="card">
@@ -1461,6 +1487,9 @@ function init(d) {
   document.getElementById('genderSel').innerHTML += d.genders.map(function (g) { return '<option>' + esc(g) + '</option>'; }).join('');
   document.getElementById('typeSel').innerHTML = d.accountTypes.map(function (g) { return '<option>' + esc(g) + '</option>'; }).join('');
   document.getElementById('methodSel').innerHTML += d.methods.map(function (g) { return '<option>' + esc(g) + '</option>'; }).join('');
+  document.getElementById('startPaySeg').innerHTML = d.startPayments.map(function (x, i) {
+    return '<label><input type="radio" name="startPayment" value="' + esc(x.key) + '"' + (i === 0 ? ' checked' : '') + '><span>' + esc(x.label) + '</span></label>';
+  }).join('');
   document.getElementById('bulkStatus').innerHTML = statusOptions('入金あり', false);
   document.getElementById('bulkMethod').innerHTML = methodOptions(d.statusMode ? '振込' : '');
   document.getElementById('bulkPresets').innerHTML = QUICK.slice(0, 2).map(function (q, k) {
@@ -1499,7 +1528,7 @@ function submitReg(ev, force) {
       if (confirm('同じ名前の人がすでに登録されています。\\n\\n' + list + '\\n\\n別人として登録しますか？')) submitReg(null, true);
       return;
     }
-    showMsg('登録しました：ANNIN No. ' + res.no + '　' + res.fullName, true);
+    showMsg('登録しました：ANNIN No. ' + res.no + '　' + res.fullName + (res.startNote ? '\\n' + res.startNote : ''), true);
     document.getElementById('pane-reg').reset();
     document.querySelector('[name=start]').value = INIT.currentMonth.replace('/', '-');
     document.getElementById('nextNoHint').textContent = '次の番号：' + res.nextNo + '（既存の番号とかぶらないように自動で振ります）';
