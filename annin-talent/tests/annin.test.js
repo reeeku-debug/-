@@ -239,9 +239,27 @@ function withDashboardSupport(ss) {
         return chain(range);
       };
       range.getDisplayValue = () => String(range.getValue());
+      // 入力規則（プルダウン）：許可しない設定なら、選択肢にない値の書き込みを本物と同じく拒否する
+      range.setDataValidation = (rule) => { sh.validations.push({ range, rule }); return chain(range); };
+      range.clearDataValidations = () => { sh.validations.push({ range, rule: null }); return chain(range); };
+      const setValues = range.setValues.bind(range);
+      range.setValues = (values) => {
+        values.forEach((line, i) => line.forEach((v, j) => {
+          const R = range.row + i;
+          const C = range.col + j;
+          const hit = sh.validations.filter((x) => R >= x.range.row && R < x.range.row + x.range.nr && C >= x.range.col && C < x.range.col + x.range.nc).pop();
+          if (hit && hit.rule && hit.rule.list && !hit.rule.allowInvalid && v !== '' && !hit.rule.list.includes(v)) {
+            throw new Error('セルに入力したデータは、このセルで設定しているデータの入力規則に違反しています');
+          }
+        }));
+        setValues(values);
+        return chain(range);
+      };
+      range.setValue = (v) => range.setValues([[v]]);
       return chain(range);
     };
     sh.formulasA1 = {};
+    sh.validations = [];
     sh.charts = [];
     sh.clear = () => { sh.cells = []; sh.formulasA1 = {}; };
     sh.hideSheet = () => { sh.hidden = true; };
@@ -266,7 +284,15 @@ function withDashboardSupport(ss) {
 }
 function loadWithDashboard(ss) {
   const ctx = load(ss);
-  ctx.SpreadsheetApp.newDataValidation = () => chain({});
+  ctx.SpreadsheetApp.newDataValidation = () => {
+    const rule = { allowInvalid: true };
+    const b = {
+      requireValueInList: (list) => { rule.list = [...list]; return b; },
+      setAllowInvalid: (x) => { rule.allowInvalid = x; return b; },
+      build: () => rule,
+    };
+    return b;
+  };
   ctx.Charts = { ChartType: { COLUMN: 'column' } };
   return ctx;
 }
@@ -559,4 +585,20 @@ test('以前のステータス名「入金あり」は振込として数え、�
   assert.equal(p.cells[11][6], '振込');
   assert.equal(p.cells[12][6], '振込');
   assert.equal(ctx.renameOldStatuses_(ss), 0);
+});
+
+test('プルダウンが古い選択肢のままでも、置き換え・アプリからの入力ができる', () => {
+  const { ss, ctx } = makeStatusFixture();
+  ctx.convertPaymentSheet_(ss);
+  const p = ss.payment;
+  // 以前の版のプルダウン（「入金あり」はあるが「振込」はない）と、以前のステータス名
+  const old = ['当月開始', '入金あり', 'サブスク', '翌月支払い', '未入金', '休止', '退所', 'クーオフ'];
+  p.getRange(12, 7, 100, 4).setDataValidation({ list: old, allowInvalid: false });
+  p.cells[11][6] = '入金あり';
+  assert.throws(() => p.getRange(12, 9).setValue('振込'), /入力規則/); // モックが本物と同じく拒否すること
+  ctx.setPayment(2, '2026/10', '振込');
+  assert.equal(p.cells[12][8], '振込');
+  p.getRange(12, 7, 100, 4).setDataValidation({ list: old, allowInvalid: false });
+  assert.equal(ctx.renameOldStatuses_(ss), 1);
+  assert.equal(p.cells[11][6], '振込');
 });

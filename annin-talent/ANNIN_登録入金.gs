@@ -315,7 +315,15 @@ function setPayments_(ss, nos, month, status, extra) {
     const value = statusMode ? status : isPaidValue_(status);
     const same = statusMode ? statusOf_(p.values[col.index]) === status : isPaidValue_(p.values[col.index]) === value;
     if (!same) {
-      sh.getRange(p.rowNumber, col.index + 1).setValue(value);
+      const cellRange = sh.getRange(p.rowNumber, col.index + 1);
+      try {
+        cellRange.setValue(value);
+      } catch (e) {
+        // プルダウンの選択肢が古い（ステータス名を変えた後など）と入力規則で弾かれるので、選択肢を今のものにして入れ直す
+        if (!statusMode) throw e;
+        applyStatusValidation_(sh, pay);
+        cellRange.setValue(value);
+      }
       p.values[col.index] = value;
       refreshPaidSummary_(sh, pay, p, ledgerSheet, ledger, ledgerByNo[no]);
       changed = true;
@@ -637,7 +645,11 @@ function renameOldStatuses_(ss) {
         return v;
       });
     });
-    if (n) range.setValues(values);
+    if (n) {
+      // 古いプルダウン（新しい名前が選択肢にない）のままだと書き込めないので、先に入力規則を外す（このあと整え直す）
+      range.clearDataValidations();
+      range.setValues(values);
+    }
   }
   refreshPaymentSheet_(ss);
   return n;
@@ -779,9 +791,7 @@ function refreshPaymentSheet_(ss, opts) {
   const hdrRange = mA + '$' + hdr + ':' + mZ + '$' + hdr;
 
   // プルダウンと色分け
-  const monthRange = sh.getRange(first, m0, bodyRows, months.length);
-  monthRange.setDataValidation(SpreadsheetApp.newDataValidation()
-    .requireValueInList(STATUS.list, true).setAllowInvalid(false).build());
+  const monthRange = applyStatusValidation_(sh, pay);
   monthRange.setHorizontalAlignment('center');
   const rules = STATUS.list.map(function (s) {
     return SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(s)
@@ -838,6 +848,15 @@ function refreshPaymentSheet_(ss, opts) {
   sh.setFrozenColumns(2);
   if (ss.getSheetByName(DASH.sheet)) buildPaymentDashboard_(ss);
   return { added: added.payment, addedPersonal: added.personal, duplicates: duplicateNos_(ss) };
+}
+
+/** 月の列（全行）のプルダウンを今の STATUS.list にする。その範囲を返す */
+function applyStatusValidation_(sh, pay) {
+  const months = monthColumns_(pay);
+  const range = sh.getRange(pay.headerRow + 1, months[0].index + 1, sh.getMaxRows() - pay.headerRow, months.length);
+  range.setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(STATUS.list, true).setAllowInvalid(false).build());
+  return range;
 }
 
 /** 対象月チェック列が見る対象月のセル：入金ダッシュボードのB4 → 今の数式が見ているセル → ダッシュボードのB4 */
