@@ -115,6 +115,7 @@ function onOpen() {
     .addItem('受領管理の色分け・集計・数式を整える', 'refreshPaymentSheet')
     .addItem('受領管理に次の12ヶ月の列を追加', 'addNextYearMonths')
     .addItem('受領管理の「入金あり」を「振込」に置き換える', 'renameOldStatuses')
+    .addItem('受領管理の「未入金」をすべて空欄にする', 'clearUnpaidStatuses')
     .addItem('振込の人の支払方法を「振込」にする（空欄の人だけ）', 'fillTransferMethod')
     .addToUi();
 }
@@ -570,7 +571,7 @@ function cleanForm_(form) {
 // メニュー「受領管理をステータス形式に変換（最初に1回だけ）」で、20_受領管理 を次の形にする。
 //   - 月の列：チェックボックス → ステータスのプルダウン（STATUS.list）。ステータスごとに色分け
 //       チェックあり → 振込
-//       チェックなし → 在籍中（台帳で解約なし）の人の、開始月〜先月は「未入金」、それ以外は空欄
+//       チェックなし → 空欄（未入金かどうかは、ダッシュボードが「入金対象で入金済みでない人」として数える）
 //   - 開始年月の右に「支払方法」「着金日」の列を追加
 //   - いちばん上に月ごとの集計行（入金済み計・ステータスごとの人数）を追加
 //   - 入金月数・最終入金月・対象月チェックの数式を、ステータスで数えるように書き直す
@@ -589,7 +590,7 @@ function convertPaymentSheet() {
   const ans = ui.alert('受領管理をステータス形式に変換',
     '20_受領管理のチェックボックスを、ステータス（' + STATUS.list.join('・') + '）のプルダウンに変えます。\n\n'
     + '・チェックあり → 振込\n'
-    + '・チェックなし → 在籍中の人の開始月〜先月は「未入金」、それ以外は空欄\n\n'
+    + '・チェックなし → 空欄\n\n'
     + '変換前の状態は「20_受領管理_変換前_日時」という非表示のシートに残します。変換しますか？',
     ui.ButtonSet.YES_NO);
   if (ans !== ui.Button.YES) return;
@@ -652,6 +653,38 @@ function renameOldStatuses_(ss) {
     }
   }
   refreshPaymentSheet_(ss);
+  return n;
+}
+
+function clearUnpaidStatuses() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const ans = ui.alert('「未入金」を空欄にする',
+    '20_受領管理の月のマスにある「未入金」を、すべての月・すべての人について空欄にします。\n'
+    + '（ダッシュボードの未入金の人数は、入金済みでない人として数えるので変わりません）よろしいですか？', ui.ButtonSet.YES_NO);
+  if (ans !== ui.Button.YES) return;
+  const n = withLock_(function () { return clearStatus_(ss, '未入金'); });
+  ui.alert('空欄にしました', n + 'マスの「未入金」を空欄にしました。', ui.ButtonSet.OK);
+}
+
+/** 月のマスの status をすべて空欄にする。空欄にしたマスの数を返す */
+function clearStatus_(ss, status) {
+  const sh = sheet_(ss, SHEET.payment);
+  const pay = readTable_(sh);
+  if (!isStatusMode_(pay)) throw new Error('先にメニューの「受領管理をステータス形式に変換」を実行してください');
+  const months = monthColumns_(pay);
+  checkMonthColumns_(months);
+  const rows = sh.getLastRow() - pay.headerRow;
+  if (rows < 1) return 0;
+  const range = sh.getRange(pay.headerRow + 1, months[0].index + 1, rows, months.length);
+  let n = 0;
+  const values = range.getValues().map(function (line) {
+    return line.map(function (v) {
+      if (statusOf_(v) === status) { n++; return ''; }
+      return v;
+    });
+  });
+  if (n) range.setValues(values);
   return n;
 }
 
@@ -722,28 +755,17 @@ function convertPaymentSheet_(ss) {
   backup.setName(backupName);
   backup.hideSheet();
 
-  // 2. チェック → ステータス
-  const ledger = readTable_(sheet_(ss, SHEET.ledger));
-  const cancelled = {};
-  ledger.rows.forEach(function (r) { if (cell_(ledger, r, 'cancel') === true) cancelled[toNo_(r.values[0])] = true; });
-  const rowMap = {};
-  pay.rows.forEach(function (r) { rowMap[r.rowNumber] = r; });
-  const cur = currentYm_();
+  // 2. チェック → ステータス（チェックあり＝振込、チェックなし＝空欄）
   const firstRow = pay.headerRow + 1;
   const nRows = Math.max(sh.getLastRow() - pay.headerRow, 1);
   const old = sh.getRange(firstRow, months[0].index + 1, nRows, months.length).getValues();
   const counts = {};
   STATUS.list.forEach(function (s) { counts[s] = 0; });
-  const block = old.map(function (line, i) {
-    const row = rowMap[firstRow + i];
-    const no = row ? toNo_(row.values[0]) : null;
-    const start = row ? normYm_(cell_(pay, row, 'start')) : '';
-    return line.map(function (v, j) {
-      const ym = months[j].ym;
+  const block = old.map(function (line) {
+    return line.map(function (v) {
       let out = '';
       if (v === true) out = PAID_DEFAULT;
       else if (typeof v === 'string' && STATUS.list.indexOf(statusOf_(v)) >= 0) out = statusOf_(v);
-      else if (no !== null && !cancelled[no] && start && ym >= start && ym < cur) out = '未入金';
       if (out) counts[out]++;
       return out;
     });

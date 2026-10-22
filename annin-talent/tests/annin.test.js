@@ -436,9 +436,9 @@ test('受領管理をステータス形式に変換：チェック→ステー�
   assert.deepEqual(p.cells[H].slice(0, 13), ['ANNIN No.', '姓名', '所属事務所', '開始年月', '支払方法', '着金日', '2026/08', '2026/09', '2026/10', '2026/11', '入金月数', '最終入金月', '対象月チェック（ダッシュボードB4連動）']);
   // 解約済みの人：チェックあり→振込、チェックなし→空欄
   assert.deepEqual(p.cells[H + 1].slice(6, 10), ['振込', '振込', '', '']);
-  // 在籍中の人：開始月〜先月のチェックなし→未入金、今月以降→空欄
-  assert.deepEqual(p.cells[H + 2].slice(6, 10), ['振込', '未入金', '', '']);
-  assert.equal(res.counts['未入金'], 1);
+  // 在籍中の人もチェックなし→空欄
+  assert.deepEqual(p.cells[H + 2].slice(6, 10), ['振込', '', '', '']);
+  assert.equal(res.counts['未入金'], 0);
   assert.equal(res.counts['振込'], 3);
   assert.equal(res.counts['当月開始'], 0);
 
@@ -601,4 +601,18 @@ test('プルダウンが古い選択肢のままでも、置き換え・アプ�
   p.getRange(12, 7, 100, 4).setDataValidation({ list: old, allowInvalid: false });
   assert.equal(ctx.renameOldStatuses_(ss), 1);
   assert.equal(p.cells[11][6], '振込');
+});
+
+test('「未入金」をすべて空欄にする', () => {
+  const { ss, ctx } = makeStatusFixture();
+  ctx.convertPaymentSheet_(ss);
+  const p = ss.payment;
+  ctx.setPayment(1, '2026/09', '未入金');
+  ctx.setPayment(2, '2026/09', '未入金');
+  ctx.setPayment(2, '2026/10', '休止');
+  assert.equal(ctx.clearStatus_(ss, '未入金'), 2);
+  assert.equal(p.cells[11][7], '');
+  assert.equal(p.cells[12][7], '');
+  assert.equal(p.cells[12][8], '休止');
+  assert.equal(ctx.clearStatus_(ss, '未入金'), 0);
 });
