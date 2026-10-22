@@ -7,10 +7,10 @@
 //        - 20_受領管理          … ANNIN No.・姓名・所属事務所・開始年月（月の列はチェックなし）
 //        - 30_個人情報（銀行口座）… 郵便番号・住所・電話番号・銀行名・支店名・区分・口座名義・口座番号
 //      ANNIN No. は3シートの最大の番号＋1を自動で振る（手入力した番号が使用済みなら登録しない）
-//   ② 入金チェック：ANNIN No. か名前（カナも可）で探して、その月のステータス（入金あり・サブスク・休止・退所など）と
+//   ② 入金チェック：ANNIN No. か名前（カナも可）で探して、その月のステータス（振込・サブスク・休止・退所など）と
 //      支払方法（振込など）を入れる。ANNIN No. をまとめて貼り付けて一括で入れることもできる
 //   ③ 入金ダッシュボード：今月（または選んだ月）の入金数・未入金数・入金率・事務所別・ステータス別・未入金者一覧・月別推移
-//   ④ 受領管理のステータス形式への変換：チェックボックス（TRUE/FALSE）をプルダウン（入金あり・サブスク…）に変える。
+//   ④ 受領管理のステータス形式への変換：チェックボックス（TRUE/FALSE）をプルダウン（振込・サブスク…）に変える。
 //      上に月ごとの集計行、左に支払方法・着金日の列を追加し、ステータスで色分けする（最初に1回だけ）
 //
 // 数式が入っている列（入金月数・最終入金月・ステータスなど）は、1つ上の行の数式をそのまま引き継ぐ。
@@ -40,12 +40,14 @@ const ACCOUNT_TYPES = ['普通口座', '当座口座'];
  * 当月開始は「入会金は払ったが月謝はまだ」の月なので、入金済みにも未入金にも数えない。
  */
 const STATUS = {
-  list: ['当月開始', '入金あり', 'サブスク', '翌月支払い', '未入金', '休止', '退所', 'クーオフ'],
-  paid: ['入金あり', 'サブスク'],
+  list: ['当月開始', '振込', 'サブスク', '翌月支払い', '未入金', '休止', '退所', 'クーオフ'],
+  paid: ['振込', 'サブスク'],
+  // 以前のステータス名 → 今の名前（残っていても入金済みとして数え、メニューで置き換えられる）
+  renamed: { 入金あり: '振込' },
   excluded: ['当月開始', '休止', '退所', 'クーオフ'],
   colors: {
     当月開始: ['#cfe2f3', '#1f2328'],
-    入金あり: ['#f4cccc', '#1f2328'],
+    振込: ['#f4cccc', '#1f2328'],
     サブスク: ['#d9ead3', '#1f2328'],
     翌月支払い: ['#fff2cc', '#1f2328'],
     未入金: ['#fce5cd', '#b42318'],
@@ -59,8 +61,11 @@ const STATUS = {
  * 新規登録で選べる「開始月の入金」。登録と同時に、20_受領管理の開始月にこのステータスを入れる。
  * method：支払方法が空欄のときに入れる支払方法
  */
+/** 振込で入金があった月のステータス（チェックボックスの TRUE もこれとして扱う） */
+const PAID_DEFAULT = '振込';
+
 const START_PAYMENTS = [
-  { key: 'transfer', label: '入金あり（振込）', status: '入金あり', method: '振込' },
+  { key: 'transfer', label: '振込', status: PAID_DEFAULT, method: '振込' },
   { key: 'subscription', label: 'サブスク', status: 'サブスク', method: '' },
   { key: 'start', label: '当月開始（入会金のみ）', status: '当月開始', method: '' },
   { key: 'none', label: '入れない', status: '', method: '' },
@@ -109,7 +114,8 @@ function onOpen() {
     .addItem('受領管理をステータス形式に変換（最初に1回だけ）', 'convertPaymentSheet')
     .addItem('受領管理の色分け・集計・数式を整える', 'refreshPaymentSheet')
     .addItem('受領管理に次の12ヶ月の列を追加', 'addNextYearMonths')
-    .addItem('入金ありの人の支払方法を「振込」にする（空欄の人だけ）', 'fillTransferMethod')
+    .addItem('受領管理の「入金あり」を「振込」に置き換える', 'renameOldStatuses')
+    .addItem('振込の人の支払方法を「振込」にする（空欄の人だけ）', 'fillTransferMethod')
     .addToUi();
 }
 
@@ -244,7 +250,7 @@ function searchTalents(query, month) {
 
 /**
  * 1人の指定月のステータスを入れる。status は STATUS.list のどれか、空欄に戻すときは ''。
- * （以前の呼び方 setPayment(no, month, true/false) も使える：true＝入金あり、false＝空欄）
+ * （以前の呼び方 setPayment(no, month, true/false) も使える：true＝振込、false＝空欄。「入金あり」は「振込」として入れる）
  * extra.method：支払方法、extra.date：着金日（yyyy-mm-dd）。空なら変えない。
  */
 function setPayment(no, month, status, extra) {
@@ -256,12 +262,12 @@ function setPayment(no, month, status, extra) {
   });
 }
 
-/** ANNIN No. をまとめて入れる（改行・カンマ・空白区切りの文字列）。status を省略すると「入金あり」 */
+/** ANNIN No. をまとめて入れる（改行・カンマ・空白区切りの文字列）。status を省略すると「振込」 */
 function setPaymentsBulk(text, month, status, extra) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const nos = parseNoList_(text);
   if (!nos.length) throw new Error('ANNIN No. を入力してください');
-  return withLock_(function () { return setPayments_(ss, nos, month, status === undefined ? '入金あり' : status, extra); });
+  return withLock_(function () { return setPayments_(ss, nos, month, status === undefined ? PAID_DEFAULT : status, extra); });
 }
 
 // ===== 中身 ===============================================================
@@ -269,9 +275,10 @@ function setPaymentsBulk(text, month, status, extra) {
 function setPayments_(ss, nos, month, status, extra) {
   const ym = normYm_(month);
   if (!ym) throw new Error('対象月を選んでください');
-  if (status === true) status = '入金あり';
+  if (status === true) status = PAID_DEFAULT;
   if (status === false || status === null || status === undefined) status = '';
   status = String(status).trim();
+  if (STATUS.renamed[status]) status = STATUS.renamed[status];
   if (status !== '' && STATUS.list.indexOf(status) < 0) throw new Error('ステータス「' + status + '」は選べません');
   extra = extra || {};
   const method = String(extra.method || '').trim();
@@ -554,7 +561,7 @@ function cleanForm_(form) {
 //
 // メニュー「受領管理をステータス形式に変換（最初に1回だけ）」で、20_受領管理 を次の形にする。
 //   - 月の列：チェックボックス → ステータスのプルダウン（STATUS.list）。ステータスごとに色分け
-//       チェックあり → 入金あり
+//       チェックあり → 振込
 //       チェックなし → 在籍中（台帳で解約なし）の人の、開始月〜先月は「未入金」、それ以外は空欄
 //   - 開始年月の右に「支払方法」「着金日」の列を追加
 //   - いちばん上に月ごとの集計行（入金済み計・ステータスごとの人数）を追加
@@ -573,7 +580,7 @@ function convertPaymentSheet() {
   const ui = SpreadsheetApp.getUi();
   const ans = ui.alert('受領管理をステータス形式に変換',
     '20_受領管理のチェックボックスを、ステータス（' + STATUS.list.join('・') + '）のプルダウンに変えます。\n\n'
-    + '・チェックあり → 入金あり\n'
+    + '・チェックあり → 振込\n'
     + '・チェックなし → 在籍中の人の開始月〜先月は「未入金」、それ以外は空欄\n\n'
     + '変換前の状態は「20_受領管理_変換前_日時」という非表示のシートに残します。変換しますか？',
     ui.ButtonSet.YES_NO);
@@ -601,18 +608,53 @@ function addNextYearMonths() {
     SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
+function renameOldStatuses() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const pairs = Object.keys(STATUS.renamed).map(function (k) { return '「' + k + '」→「' + STATUS.renamed[k] + '」'; }).join('、');
+  const ans = ui.alert('ステータスの名前を置き換える', '20_受領管理の月のマスの ' + pairs + ' に、まとめて置き換えます。よろしいですか？', ui.ButtonSet.YES_NO);
+  if (ans !== ui.Button.YES) return;
+  const n = withLock_(function () { return renameOldStatuses_(ss); });
+  ui.alert('置き換えました', n + 'マスを置き換えました。プルダウン・色分け・集計・ダッシュボードも新しい名前にしました。', ui.ButtonSet.OK);
+}
+
+/** 月のマスの以前のステータス名（STATUS.renamed）を今の名前にして、受領管理を整え直す。置き換えたマスの数を返す */
+function renameOldStatuses_(ss) {
+  const sh = sheet_(ss, SHEET.payment);
+  const pay = readTable_(sh);
+  if (!isStatusMode_(pay)) throw new Error('先にメニューの「受領管理をステータス形式に変換」を実行してください');
+  const months = monthColumns_(pay);
+  checkMonthColumns_(months);
+  const first = pay.headerRow + 1;
+  const rows = sh.getLastRow() - pay.headerRow;
+  let n = 0;
+  if (rows > 0) {
+    const range = sh.getRange(first, months[0].index + 1, rows, months.length);
+    const values = range.getValues().map(function (line) {
+      return line.map(function (v) {
+        const k = typeof v === 'string' ? v.trim() : '';
+        if (STATUS.renamed[k]) { n++; return STATUS.renamed[k]; }
+        return v;
+      });
+    });
+    if (n) range.setValues(values);
+  }
+  refreshPaymentSheet_(ss);
+  return n;
+}
+
 function fillTransferMethod() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ui = SpreadsheetApp.getUi();
   const ans = ui.alert('支払方法を「振込」にする',
-    '20_受領管理で、どこかの月が「入金あり」になっていて支払方法が空欄の人を、まとめて「振込」にします。\n'
+    '20_受領管理で、どこかの月が「振込」になっていて支払方法が空欄の人を、まとめて「振込」にします。\n'
     + '（支払方法がすでに入っている人・サブスクだけの人は変えません）よろしいですか？', ui.ButtonSet.YES_NO);
   if (ans !== ui.Button.YES) return;
   const res = withLock_(function () { return fillMethodForPaid_(ss, '振込'); });
   ui.alert('支払方法を「振込」にしました', res.length + '人の支払方法を「振込」にしました。', ui.ButtonSet.OK);
 }
 
-/** どこかの月が「入金あり」で、支払方法が空欄の人の支払方法を method にする。変えた ANNIN No. を返す */
+/** どこかの月が「振込」で、支払方法が空欄の人の支払方法を method にする。変えた ANNIN No. を返す */
 function fillMethodForPaid_(ss, method) {
   const sh = sheet_(ss, SHEET.payment);
   const pay = readTable_(sh);
@@ -626,7 +668,7 @@ function fillMethodForPaid_(ss, method) {
   const values = sh.getRange(first, col + 1, rows, 1).getValues();
   pay.rows.forEach(function (row) {
     if (String(row.values[col]).trim() !== '') return;
-    if (!months.some(function (m) { return statusOf_(row.values[m.index]) === '入金あり'; })) return;
+    if (!months.some(function (m) { return statusOf_(row.values[m.index]) === PAID_DEFAULT; })) return;
     values[row.rowNumber - first][0] = method;
     changed.push(toNo_(row.values[0]));
   });
@@ -687,8 +729,8 @@ function convertPaymentSheet_(ss) {
     return line.map(function (v, j) {
       const ym = months[j].ym;
       let out = '';
-      if (v === true) out = '入金あり';
-      else if (typeof v === 'string' && STATUS.list.indexOf(v.trim()) >= 0) out = v.trim();
+      if (v === true) out = PAID_DEFAULT;
+      else if (typeof v === 'string' && STATUS.list.indexOf(statusOf_(v)) >= 0) out = statusOf_(v);
       else if (no !== null && !cancelled[no] && start && ym >= start && ym < cur) out = '未入金';
       if (out) counts[out]++;
       return out;
@@ -939,7 +981,7 @@ function nextYm_(ym) {
 //   - 01_入金ダッシュボード … 対象月（空欄なら今月）の入金数・未入金数・入金率・事務所別・未入金者一覧・月別推移
 //   - _入金集計（非表示）   … ダッシュボードの計算用。20_受領管理・10_タレント台帳を数式で参照する
 // 中身はすべて数式なので、アプリやシートでステータス（チェック）を入れるとすぐに反映される。
-// 「入金済み」は、チェックボックスの TRUE か、STATUS.paid のステータス（入金あり・サブスク）。
+// 「入金済み」は、チェックボックスの TRUE か、STATUS.paid のステータス（振込・サブスク）。
 // 「入金対象」は、解約しておらず開始月が来ていて、その月のステータスが STATUS.excluded（当月開始・休止・退所・クーオフ）でない人。
 
 const DASH = {
@@ -1017,7 +1059,7 @@ function buildPaymentDashboard_(ss) {
     ifRow(cancel),
     ifRow('IF($M$5=0,FALSE,' + paidTest(monthCell(5)) + ')'),
     ifRow('IF($M$6=0,FALSE,' + paidTest(monthCell(6)) + ')'),
-    ifRow('IF($M$5=0,"",IF(' + monthCell(5) + '=TRUE,"入金あり",IF(' + monthCell(5) + '=FALSE,"",TO_TEXT(' + monthCell(5) + '))))'),
+    ifRow('IF($M$5=0,"",IF(' + monthCell(5) + '=TRUE,"' + PAID_DEFAULT + '",IF(' + monthCell(5) + '=FALSE,"",TO_TEXT(' + monthCell(5) + '))))'),
   ]]);
   calc.getRange('L1:M6').setValues([
     ['対象月', ''], ['対象月(数値)', ''], ['前月', ''], ['前月(数値)', ''], ['対象月の列番号', ''], ['前月の列番号', ''],
@@ -1118,7 +1160,7 @@ function buildPaymentDashboard_(ss) {
     sh.getRange(tStart + 2 + STATUS.list.length, 3).setValue('在籍・開始済みで、対象月のステータスが空欄の人').setFontColor('#656d76');
     tStart += st.length + 3;
 
-    // 支払方法別：対象月の入金済み（入金あり・サブスク）を、20_受領管理の「支払方法」で分ける
+    // 支払方法別：対象月の入金済み（振込・サブスク）を、20_受領管理の「支払方法」で分ける
     sh.getRange(tStart, 1).setValue('■ 支払方法別（対象月の入金済み）').setFontWeight('bold');
     const headers = ['支払方法'].concat(STATUS.paid, ['合計']);
     sh.getRange(tStart + 1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#eef3fe');
@@ -1257,14 +1299,15 @@ function fmtDay_(v) {
 
 /** 月のセルの値が「入金済み」か（チェックボックスの TRUE か、STATUS.paid のステータス） */
 function isPaidValue_(v) {
-  return v === true || (typeof v === 'string' && STATUS.paid.indexOf(v.trim()) >= 0);
+  return v === true || (typeof v === 'string' && STATUS.paid.indexOf(statusOf_(v)) >= 0);
 }
 
-/** 月のセルの値 → ステータス文字列（チェックボックスの TRUE は「入金あり」、FALSE は空欄） */
+/** 月のセルの値 → ステータス文字列（チェックボックスの TRUE は「振込」、FALSE は空欄、以前の名前は今の名前） */
 function statusOf_(v) {
-  if (v === true) return '入金あり';
+  if (v === true) return PAID_DEFAULT;
   if (v === false || v === null || v === undefined) return '';
-  return String(v).trim();
+  const s = String(v).trim();
+  return STATUS.renamed[s] || s;
 }
 
 /** 受領管理がステータス形式（変換済み）か。変換すると「支払方法」の列ができる */
@@ -1272,9 +1315,10 @@ function isStatusMode_(table) {
   return table.col.method !== undefined;
 }
 
-/** 数式に埋め込む、入金済みのステータスの配列 {"入金あり","サブスク"} */
+/** 数式に埋め込む、入金済みのステータスの配列 {"振込","サブスク","入金あり"}（以前の名前も入金済みとして数える） */
 function paidArray_() {
-  return '{' + STATUS.paid.map(function (s) { return '"' + s + '"'; }).join(',') + '}';
+  const old = Object.keys(STATUS.renamed).filter(function (k) { return STATUS.paid.indexOf(STATUS.renamed[k]) >= 0; });
+  return '{' + STATUS.paid.concat(old).map(function (s) { return '"' + s + '"'; }).join(',') + '}';
 }
 
 function toNo_(v) {
@@ -1429,7 +1473,7 @@ const APP_HTML_ = `<!doctype html>
   </form>
 
   <div id="pane-pay" style="display:none">
-    <div class="note" id="modeNote" style="display:none">20_受領管理はまだチェックボックス形式です。入金あり・サブスクは「チェックあり」、それ以外は「チェックなし」として記録されます（支払方法・着金日は記録されません）。メニュー「ANNIN管理 → 受領管理をステータス形式に変換」を実行すると、ステータスのまま記録できます。</div>
+    <div class="note" id="modeNote" style="display:none">20_受領管理はまだチェックボックス形式です。振込・サブスクは「チェックあり」、それ以外は「チェックなし」として記録されます（支払方法・着金日は記録されません）。メニュー「ANNIN管理 → 受領管理をステータス形式に変換」を実行すると、ステータスのまま記録できます。</div>
     <div class="card">
       <h2>探して入力</h2>
       <div class="row">
@@ -1447,7 +1491,7 @@ const APP_HTML_ = `<!doctype html>
       <textarea id="bulk" placeholder="12&#10;45&#10;1203"></textarea>
       <div class="chips" id="bulkPresets"></div>
       <div class="grid" style="margin-top:10px">
-        <div><label>ステータス</label><select id="bulkStatus" onchange="if(this.value!=='入金あり')document.getElementById('bulkMethod').value=''"></select></div>
+        <div><label>ステータス</label><select id="bulkStatus" onchange="if(this.value!=='振込')document.getElementById('bulkMethod').value=''"></select></div>
         <div><label>支払方法（任意）</label><select id="bulkMethod"></select></div>
         <div><label>着金日（任意）</label><input id="bulkDate" type="date"></div>
       </div>
@@ -1490,7 +1534,7 @@ function init(d) {
   document.getElementById('startPaySeg').innerHTML = d.startPayments.map(function (x, i) {
     return '<label><input type="radio" name="startPayment" value="' + esc(x.key) + '"' + (i === 0 ? ' checked' : '') + '><span>' + esc(x.label) + '</span></label>';
   }).join('');
-  document.getElementById('bulkStatus').innerHTML = statusOptions('入金あり', false);
+  document.getElementById('bulkStatus').innerHTML = statusOptions('振込', false);
   document.getElementById('bulkMethod').innerHTML = methodOptions(d.statusMode ? '振込' : '');
   document.getElementById('bulkPresets').innerHTML = QUICK.slice(0, 2).map(function (q, k) {
     var c = d.statusColors[q.status];
@@ -1580,7 +1624,7 @@ function renderResults(list) {
         return '<button type="button" style="background:' + c[0] + ';color:' + c[1] + '" onclick="quickSet(' + i + ',' + k + ')">' + esc(q.label) + '</button>';
       }).join('') + '</div>';
       var controls = '<div class="controls">' +
-        '<select id="st' + i + '">' + statusOptions(r.monthStatus || '入金あり', true) + '</select>' +
+        '<select id="st' + i + '">' + statusOptions(r.monthStatus || '振込', true) + '</select>' +
         '<select id="me' + i + '"' + (INIT.statusMode ? '' : ' disabled') + '>' + methodOptions('') + '</select>' +
         '<input id="dt' + i + '" type="date"' + (INIT.statusMode ? '' : ' disabled') + ' title="着金日（任意）">' +
         '<button class="btn" type="button" style="padding:8px 14px" onclick="saveRow(' + i + ')">保存</button></div>';
@@ -1588,9 +1632,9 @@ function renderResults(list) {
     }).join('');
 }
 
-// 「振込」＝その月を入金あり＋支払方法を振込にする。ほかはステータスだけ
+// 「振込」＝その月を振込＋支払方法を振込にする。ほかはステータスだけ
 var QUICK = [
-  { label: '振込', status: '入金あり', method: '振込' },
+  { label: '振込', status: '振込', method: '振込' },
   { label: 'サブスク', status: 'サブスク', method: '' },
   { label: '未入金', status: '未入金', method: '' },
   { label: '休止', status: '休止', method: '' },

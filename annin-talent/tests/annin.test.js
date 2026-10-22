@@ -408,12 +408,12 @@ test('受領管理をステータス形式に変換：チェック→ステー�
   // 見出しは11行目（上に集計9行＋空行1行）、開始年月の右に支払方法・着金日
   const H = 10; // 0-based
   assert.deepEqual(p.cells[H].slice(0, 13), ['ANNIN No.', '姓名', '所属事務所', '開始年月', '支払方法', '着金日', '2026/08', '2026/09', '2026/10', '2026/11', '入金月数', '最終入金月', '対象月チェック（ダッシュボードB4連動）']);
-  // 解約済みの人：チェックあり→入金あり、チェックなし→空欄
-  assert.deepEqual(p.cells[H + 1].slice(6, 10), ['入金あり', '入金あり', '', '']);
+  // 解約済みの人：チェックあり→振込、チェックなし→空欄
+  assert.deepEqual(p.cells[H + 1].slice(6, 10), ['振込', '振込', '', '']);
   // 在籍中の人：開始月〜先月のチェックなし→未入金、今月以降→空欄
-  assert.deepEqual(p.cells[H + 2].slice(6, 10), ['入金あり', '未入金', '', '']);
+  assert.deepEqual(p.cells[H + 2].slice(6, 10), ['振込', '未入金', '', '']);
   assert.equal(res.counts['未入金'], 1);
-  assert.equal(res.counts['入金あり'], 3);
+  assert.equal(res.counts['振込'], 3);
   assert.equal(res.counts['当月開始'], 0);
 
   // 台帳にだけいた No.3 を受領管理・個人情報に追加（開始年月は日付から "2026/10"）
@@ -426,13 +426,13 @@ test('受領管理をステータス形式に変換：チェック→ステー�
   // 上の集計行（ラベルは着金日の列、数式は月の列）
   assert.equal(p.cells[0][5], '入金済み計');
   assert.equal(p.cells[1][5], '当月開始');
-  assert.equal(p.formulasA1['1,7'], '=SUM(COUNTIF(G12:G,{"入金あり","サブスク"}))');
+  assert.equal(p.formulasA1['1,7'], '=SUM(COUNTIF(G12:G,{"振込","サブスク","入金あり"}))');
   assert.equal(p.formulasA1['2,7'], '=COUNTIF(G12:G,"当月開始")');
 
   // 行ごとの数式
-  assert.equal(p.formulasA1['12,11'], '=SUM(COUNTIF(G12:J12,{"入金あり","サブスク"}))');
+  assert.equal(p.formulasA1['12,11'], '=SUM(COUNTIF(G12:J12,{"振込","サブスク","入金あり"}))');
   assert.match(p.formulasA1['12,12'], /LOOKUP\(2,1\/ISNUMBER\(MATCH\(G12:J12,.*G\$11:J\$11/);
-  assert.equal(p.formulasA1['14,13'], "=IFERROR(ISNUMBER(MATCH(INDEX(G14:J14,MATCH('00_ダッシュボード'!$B$4,G$11:J$11,0)),{\"入金あり\",\"サブスク\"},0)),FALSE)");
+  assert.equal(p.formulasA1['14,13'], "=IFERROR(ISNUMBER(MATCH(INDEX(G14:J14,MATCH('00_ダッシュボード'!$B$4,G$11:J$11,0)),{\"振込\",\"サブスク\",\"入金あり\"},0)),FALSE)");
 
   // 台帳は ANNIN No. で探す数式に
   assert.equal(ss.ledger.formulasA1['2,9'], "=IFERROR(INDEX('20_受領管理'!$K:$K,MATCH($A2,'20_受領管理'!$A:$A,0)),0)");
@@ -441,7 +441,7 @@ test('受領管理をステータス形式に変換：チェック→ステー�
 
   // 50_月次推移
   assert.deepEqual(ss.trend.cells.slice(1, 5).map((r) => r[0]), ['2026/08', '2026/09', '2026/10', '2026/11']);
-  assert.equal(ss.trend.formulasA1['2,2'], "=COUNTIF('20_受領管理'!G12:G,TRUE)+SUM(COUNTIF('20_受領管理'!G12:G,{\"入金あり\",\"サブスク\"}))");
+  assert.equal(ss.trend.formulasA1['2,2'], "=COUNTIF('20_受領管理'!G12:G,TRUE)+SUM(COUNTIF('20_受領管理'!G12:G,{\"振込\",\"サブスク\",\"入金あり\"}))");
 
   Object.values(p.formulasA1).concat(Object.values(ss.ledger.formulasA1)).forEach(checkFormula);
   assert.throws(() => ctx.convertPaymentSheet_(ss), /すでにステータス形式/);
@@ -470,7 +470,7 @@ test('ステータス形式：アプリからステータス・支払方法・�
   ctx.setPayment(1, '2026/10', '');
   assert.equal(p.cells[11][8], '');
   assert.throws(() => ctx.setPayment(1, '2026/10', '入金'), /選べません/);
-  assert.throws(() => ctx.setPayment(1, '2026/10', '入金あり', { method: '現金' }), /支払方法/);
+  assert.throws(() => ctx.setPayment(1, '2026/10', '振込', { method: '現金' }), /支払方法/);
 
   // 新規登録：月の列は空欄、支払方法も入る
   const reg = ctx.registerTalent({ ...FORM, method: 'スクエア' });
@@ -487,14 +487,14 @@ test('ステータス形式：ダッシュボードと12ヶ月の列追加', () 
   const dash = ss.sheets['01_入金ダッシュボード'];
   const calc = ss.sheets['_入金集計'];
   Object.values(dash.formulasA1).concat(Object.values(calc.formulasA1)).forEach(checkFormula);
-  assert.match(calc.formulasA1['2,9'], /ISNUMBER\(MATCH\(INDEX\('20_受領管理'!A12:M,0,MAX\(1,\$M\$5\)\),\{"入金あり","サブスク"\},0\)\)/);
+  assert.match(calc.formulasA1['2,9'], /ISNUMBER\(MATCH\(INDEX\('20_受領管理'!A12:M,0,MAX\(1,\$M\$5\)\),\{"振込","サブスク","入金あり"\},0\)\)/);
   assert.match(dash.formulasA1['8,2'], /'_入金集計'!K2:K,"<>当月開始",'_入金集計'!K2:K,"<>休止"/);
   assert.match(calc.formulasA1['2,14'], /TRIM\(TO_TEXT\('20_受領管理'!E12:E\)\)/);
-  // 支払方法別：振込×入金あり、未設定×サブスク、合計
+  // 支払方法別：振込×振込、未設定×サブスク、合計
   const mRow = dash.cells.findIndex((r) => r && r[0] === '■ 支払方法別（対象月の入金済み）') + 1;
-  assert.deepEqual(dash.cells[mRow].slice(0, 4), ['支払方法', '入金あり', 'サブスク', '合計']);
+  assert.deepEqual(dash.cells[mRow].slice(0, 4), ['支払方法', '振込', 'サブスク', '合計']);
   assert.equal(dash.cells[mRow + 1][0], '振込');
-  assert.equal(dash.formulasA1[(mRow + 2) + ',2'], "=COUNTIFS('_入金集計'!K2:K,\"入金あり\",'_入金集計'!N2:N,\"振込\")");
+  assert.equal(dash.formulasA1[(mRow + 2) + ',2'], "=COUNTIFS('_入金集計'!K2:K,\"振込\",'_入金集計'!N2:N,\"振込\")");
   assert.equal(dash.formulasA1[(mRow + 5) + ',3'], "=COUNTIFS('_入金集計'!K2:K,\"サブスク\",'_入金集計'!N2:N,\"\")");
   assert.equal(dash.formulasA1[(mRow + 6) + ',4'], '=SUM(D' + (mRow + 2) + ':D' + (mRow + 5) + ')');
   assert.ok(dash.cells.some((r) => r && r[0] === '■ ステータス別（対象月）'));
@@ -505,16 +505,16 @@ test('ステータス形式：ダッシュボードと12ヶ月の列追加', () 
   const hdr = ss.payment.cells[10];
   assert.deepEqual(hdr.slice(9, 12), ['2026/11', '2026/12', '2027/01']);
   assert.equal(hdr[22], '入金月数');
-  assert.equal(ss.payment.formulasA1['12,23'], '=SUM(COUNTIF(G12:V12,{"入金あり","サブスク"}))');
+  assert.equal(ss.payment.formulasA1['12,23'], '=SUM(COUNTIF(G12:V12,{"振込","サブスク","入金あり"}))');
 });
 
-test('入金ありの人の支払方法を一括で振込にする（空欄の人だけ）', () => {
+test('振込の人の支払方法を一括で振込にする（空欄の人だけ）', () => {
   const { ss, ctx } = makeStatusFixture();
   ctx.convertPaymentSheet_(ss);
   const p = ss.payment;
   ctx.setPayment(2, '2026/10', 'サブスク', { method: 'スクエア' });
   const changed = ctx.fillMethodForPaid_(ss, '振込');
-  assert.deepEqual([...changed], [1]); // No.2 はスクエアのまま、No.3 は入金ありの月がない
+  assert.deepEqual([...changed], [1]); // No.2 はスクエアのまま、No.3 は振込の月がない
   assert.equal(p.cells[11][4], '振込');
   assert.equal(p.cells[12][4], 'スクエア');
   assert.equal(p.cells[13][4], '');
@@ -525,10 +525,10 @@ test('新規登録で開始月の入金も入る（ステータス形式・チ�
   const { ss, ctx } = makeStatusFixture();
   ctx.convertPaymentSheet_(ss);
   const res = ctx.registerTalent({ ...FORM, startPayment: 'transfer' });
-  assert.equal(res.startNote, '2026/10 を「入金あり」にしました');
+  assert.equal(res.startNote, '2026/10 を「振込」にしました');
   const row = ss.payment.cells[14];
   assert.equal(row[4], '振込');
-  assert.deepEqual(row.slice(6, 10), ['', '', '入金あり', '']);
+  assert.deepEqual(row.slice(6, 10), ['', '', '振込', '']);
   // 支払方法を選んでいればそちらを使う
   ctx.registerTalent({ ...FORM, lastName: '佐藤', startPayment: 'subscription', method: 'スクエア' });
   assert.equal(ss.payment.cells[15][4], 'スクエア');
@@ -538,10 +538,25 @@ test('新規登録で開始月の入金も入る（ステータス形式・チ�
   assert.match(late.startNote, /2027\/05 の列がない/);
   assert.throws(() => ctx.registerTalent({ ...FORM, lastName: '高橋', startPayment: 'x' }), /開始月の入金/);
 
-  // チェックボックス形式：入金あり → チェックあり
+  // チェックボックス形式：振込 → チェックあり
   const ss2 = makeSpreadsheet();
   const ctx2 = load(ss2);
   ctx2.registerTalent({ ...FORM, startPayment: 'transfer' });
   assert.equal(ss2.payment.cells[3][6], true);
   assert.equal(ss2.payment.cells[3][8], '2026/10');
+});
+
+test('以前のステータス名「入金あり」は振込として数え、メニューで置き換えられる', () => {
+  const { ss, ctx } = makeStatusFixture();
+  ctx.convertPaymentSheet_(ss);
+  const p = ss.payment;
+  p.cells[11][6] = '入金あり';
+  p.cells[12][6] = '入金あり';
+  assert.equal(ctx.searchTalents('1', '2026/08')[0].monthStatus, '振込');
+  assert.equal(ctx.searchTalents('1', '2026/08')[0].paid, true);
+  assert.equal(ctx.setPayment(1, '2026/08', '入金あり').done.length, 0); // 同じ「振込」なので変更なし
+  assert.equal(ctx.renameOldStatuses_(ss), 2);
+  assert.equal(p.cells[11][6], '振込');
+  assert.equal(p.cells[12][6], '振込');
+  assert.equal(ctx.renameOldStatuses_(ss), 0);
 });
