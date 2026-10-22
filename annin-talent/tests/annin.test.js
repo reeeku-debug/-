@@ -616,3 +616,20 @@ test('「未入金」をすべて空欄にする', () => {
   assert.equal(p.cells[12][8], '休止');
   assert.equal(ctx.clearStatus_(ss, '未入金'), 0);
 });
+
+test('支払方法の見出しを書き換えても、変換済みとして動く', () => {
+  const { ss, ctx } = makeStatusFixture();
+  ctx.convertPaymentSheet_(ss);
+  const p = ss.payment;
+  p.cells[10][4] = '状態';
+  ctx.setPayment(1, '2026/09', '未入金');
+  assert.equal(ctx.clearStatus_(ss, '未入金'), 1);
+  ctx.setPayment(2, '2026/10', 'サブスク', { method: '振込' }); // 支払方法の列がないので方法は書かない
+  assert.equal(p.cells[12][8], 'サブスク');
+  assert.equal(p.cells[12][4], '');
+  assert.equal(ctx.getInitData().statusMode, true);
+  ctx.refreshPaymentSheet_(ss);
+  ctx.buildPaymentDashboard();
+  assert.ok(!ss.sheets['01_入金ダッシュボード'].cells.some((r) => r && r[0] === '■ 支払方法別（対象月の入金済み）'));
+  assert.throws(() => ctx.fillMethodForPaid_(ss, '振込'), /支払方法」の列が見つかりません/);
+});

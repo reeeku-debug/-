@@ -707,6 +707,7 @@ function fillMethodForPaid_(ss, method) {
   const months = monthColumns_(pay);
   const changed = [];
   const col = pay.col.method;
+  if (col === undefined) throw new Error('20_受領管理 に「支払方法」の列が見つかりません。列の見出しを「支払方法」にしてください');
   const first = pay.headerRow + 1;
   const rows = sh.getLastRow() - pay.headerRow;
   if (rows < 1) return changed;
@@ -1084,7 +1085,8 @@ function buildPaymentDashboard_(ss) {
   if (calc.getMaxRows() < needRows) calc.insertRowsAfter(calc.getMaxRows(), needRows - calc.getMaxRows());
   calc.getRange(1, 1, 1, 11).setValues([['ANNIN No.', '姓名', '所属事務所', '開始年月', '入金月数', '最終入金月', '開始(数値)', '解約', '対象月入金', '前月入金', '対象月ステータス']]);
   // N列：支払方法（L:M は対象月などの計算用セル）
-  if (statusMode) {
+  const hasMethod = statusMode && pay.col.method !== undefined;
+  if (hasMethod) {
     calc.getRange('N1').setValue('支払方法');
     calc.getRange('N2').setFormula(ifRow('TRIM(TO_TEXT(' + rng('method') + '))'));
   }
@@ -1201,6 +1203,8 @@ function buildPaymentDashboard_(ss) {
     sh.getRange(tStart + 2 + STATUS.list.length, 3).setValue('在籍・開始済みで、対象月のステータスが空欄の人').setFontColor('#656d76');
     tStart += st.length + 3;
 
+  }
+  if (hasMethod) {
     // 支払方法別：対象月の入金済み（振込・サブスク）を、20_受領管理の「支払方法」で分ける
     sh.getRange(tStart, 1).setValue('■ 支払方法別（対象月の入金済み）').setFontWeight('bold');
     const headers = ['支払方法'].concat(STATUS.paid, ['合計']);
@@ -1351,9 +1355,23 @@ function statusOf_(v) {
   return STATUS.renamed[s] || s;
 }
 
-/** 受領管理がステータス形式（変換済み）か。変換すると「支払方法」の列ができる */
+/**
+ * 受領管理がステータス形式（変換済み）か。
+ * 「支払方法」の列がある、または月のマスに振込・サブスクなどのステータスが入っていれば変換済みとみなす
+ * （支払方法の見出しを書き換えても動くように）。
+ */
 function isStatusMode_(table) {
-  return table.col.method !== undefined;
+  if (table.col.method !== undefined) return true;
+  if (table.statusMode !== undefined) return table.statusMode;
+  const months = monthColumns_(table);
+  const known = STATUS.list.concat(Object.keys(STATUS.renamed));
+  table.statusMode = table.rows.some(function (row) {
+    return months.some(function (m) {
+      const v = row.values[m.index];
+      return typeof v === 'string' && known.indexOf(v.trim()) >= 0;
+    });
+  });
+  return table.statusMode;
 }
 
 /** 数式に埋め込む、入金済みのステータスの配列 {"振込","サブスク","入金あり"}（以前の名前も入金済みとして数える） */
