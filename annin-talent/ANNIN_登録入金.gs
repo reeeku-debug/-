@@ -35,13 +35,14 @@ const ACCOUNT_TYPES = ['普通口座', '当座口座'];
 
 /**
  * 20_受領管理の月の列に入れるステータス（プルダウンの順）と色。
- * paid に入っているステータスを「入金済み」として数える。
+ * paid に入っているステータスを「入金済み」（その月の月謝の入金）として数える。
  * excluded に入っているステータスの人は、その月の入金対象から外す（未入金に数えない）。
+ * 当月開始は「入会金は払ったが月謝はまだ」の月なので、入金済みにも未入金にも数えない。
  */
 const STATUS = {
   list: ['当月開始', '入金あり', 'サブスク', '翌月支払い', '未入金', '休止', '退所', 'クーオフ'],
-  paid: ['当月開始', '入金あり', 'サブスク'],
-  excluded: ['休止', '退所', 'クーオフ'],
+  paid: ['入金あり', 'サブスク'],
+  excluded: ['当月開始', '休止', '退所', 'クーオフ'],
   colors: {
     当月開始: ['#cfe2f3', '#1f2328'],
     入金あり: ['#f4cccc', '#1f2328'],
@@ -527,7 +528,7 @@ function cleanForm_(form) {
 //
 // メニュー「受領管理をステータス形式に変換（最初に1回だけ）」で、20_受領管理 を次の形にする。
 //   - 月の列：チェックボックス → ステータスのプルダウン（STATUS.list）。ステータスごとに色分け
-//       チェックあり → 入金あり（開始月は「当月開始」）
+//       チェックあり → 入金あり
 //       チェックなし → 在籍中（台帳で解約なし）の人の、開始月〜先月は「未入金」、それ以外は空欄
 //   - 開始年月の右に「支払方法」「着金日」の列を追加
 //   - いちばん上に月ごとの集計行（入金済み計・ステータスごとの人数）を追加
@@ -546,7 +547,7 @@ function convertPaymentSheet() {
   const ui = SpreadsheetApp.getUi();
   const ans = ui.alert('受領管理をステータス形式に変換',
     '20_受領管理のチェックボックスを、ステータス（' + STATUS.list.join('・') + '）のプルダウンに変えます。\n\n'
-    + '・チェックあり → 入金あり（開始月は「当月開始」）\n'
+    + '・チェックあり → 入金あり\n'
     + '・チェックなし → 在籍中の人の開始月〜先月は「未入金」、それ以外は空欄\n\n'
     + '変換前の状態は「20_受領管理_変換前_日時」という非表示のシートに残します。変換しますか？',
     ui.ButtonSet.YES_NO);
@@ -627,7 +628,7 @@ function convertPaymentSheet_(ss) {
     return line.map(function (v, j) {
       const ym = months[j].ym;
       let out = '';
-      if (v === true) out = ym === start ? '当月開始' : '入金あり';
+      if (v === true) out = '入金あり';
       else if (typeof v === 'string' && STATUS.list.indexOf(v.trim()) >= 0) out = v.trim();
       else if (no !== null && !cancelled[no] && start && ym >= start && ym < cur) out = '未入金';
       if (out) counts[out]++;
@@ -879,8 +880,8 @@ function nextYm_(ym) {
 //   - 01_入金ダッシュボード … 対象月（空欄なら今月）の入金数・未入金数・入金率・事務所別・未入金者一覧・月別推移
 //   - _入金集計（非表示）   … ダッシュボードの計算用。20_受領管理・10_タレント台帳を数式で参照する
 // 中身はすべて数式なので、アプリやシートでステータス（チェック）を入れるとすぐに反映される。
-// 「入金済み」は、チェックボックスの TRUE か、STATUS.paid のステータス（当月開始・入金あり・サブスク）。
-// 「入金対象」は、解約しておらず開始月が来ていて、その月のステータスが STATUS.excluded（休止・退所・クーオフ）でない人。
+// 「入金済み」は、チェックボックスの TRUE か、STATUS.paid のステータス（入金あり・サブスク）。
+// 「入金対象」は、解約しておらず開始月が来ていて、その月のステータスが STATUS.excluded（当月開始・休止・退所・クーオフ）でない人。
 
 const DASH = {
   sheet: '01_入金ダッシュボード',
@@ -940,6 +941,11 @@ function buildPaymentDashboard_(ss) {
   const needRows = paySheet.getMaxRows() + 1000;
   if (calc.getMaxRows() < needRows) calc.insertRowsAfter(calc.getMaxRows(), needRows - calc.getMaxRows());
   calc.getRange(1, 1, 1, 11).setValues([['ANNIN No.', '姓名', '所属事務所', '開始年月', '入金月数', '最終入金月', '開始(数値)', '解約', '対象月入金', '前月入金', '対象月ステータス']]);
+  // N列：支払方法（L:M は対象月などの計算用セル）
+  if (statusMode) {
+    calc.getRange('N1').setValue('支払方法');
+    calc.getRange('N2').setFormula(ifRow('TRIM(TO_TEXT(' + rng('method') + '))'));
+  }
   const monthCell = function (n) { return 'INDEX(' + body + ',0,MAX(1,$M$' + n + '))'; };
   calc.getRange(2, 1, 1, 11).setFormulas([[
     ifRow(noR),
@@ -999,7 +1005,7 @@ function buildPaymentDashboard_(ss) {
 
   sh.getRange('A7').setValue('■ サマリー').setFontWeight('bold');
   const summary = [
-    ['入金対象（在籍・開始済み）', '=' + target + ')', '解約しておらず開始月が来ている人（その月が休止・退所・クーオフの人は除く）'],
+    ['入金対象（在籍・開始済み）', '=' + target + ')', '解約しておらず開始月が来ている人（その月が ' + STATUS.excluded.join('・') + ' の人は除く）'],
     ['入金済み', '=COUNTIF(' + col('I') + ',TRUE)', '対象月が ' + STATUS.paid.join('・') + ' の人'],
     ['未入金', '=' + target + ',' + col('I') + ',FALSE)', '入金対象のうち入金済みでない人（右の一覧）'],
     ['入金率', rate(target + ',' + col('I') + ',TRUE)', target + ')'), '入金対象のうち入金済みの割合'],
@@ -1052,6 +1058,30 @@ function buildPaymentDashboard_(ss) {
     });
     sh.getRange(tStart + 2 + STATUS.list.length, 3).setValue('在籍・開始済みで、対象月のステータスが空欄の人').setFontColor('#656d76');
     tStart += st.length + 3;
+
+    // 支払方法別：対象月の入金済み（入金あり・サブスク）を、20_受領管理の「支払方法」で分ける
+    sh.getRange(tStart, 1).setValue('■ 支払方法別（対象月の入金済み）').setFontWeight('bold');
+    const headers = ['支払方法'].concat(STATUS.paid, ['合計']);
+    sh.getRange(tStart + 1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#eef3fe');
+    const methods = PAY_METHODS.concat(['（未設定）']);
+    const mRow0 = tStart + 2;
+    sh.getRange(mRow0, 1, methods.length + 1, 1).setValues(methods.concat(['合計']).map(function (x) { return [x]; }));
+    const lastC = colLetter_(1 + STATUS.paid.length);
+    sh.getRange(mRow0, 2, methods.length + 1, STATUS.paid.length + 1).setFormulas(methods.concat(['合計']).map(function (m, i) {
+      const r = mRow0 + i;
+      if (m === '合計') {
+        return STATUS.paid.concat(['']).map(function (_, j) {
+          const L = colLetter_(2 + j);
+          return '=SUM(' + L + mRow0 + ':' + L + (r - 1) + ')';
+        });
+      }
+      const cond = ',' + col('N') + ',"' + (m === '（未設定）' ? '' : m) + '"';
+      return STATUS.paid.map(function (p) { return '=COUNTIFS(' + col('K') + ',"' + p + '"' + cond + ')'; })
+        .concat(['=SUM(B' + r + ':' + lastC + r + ')']);
+    })).setNumberFormat('#,##0');
+    sh.getRange(mRow0 + methods.length, 1, 1, headers.length).setFontWeight('bold');
+    sh.getRange(mRow0, headers.length + 1).setValue('支払方法は 20_受領管理 の「支払方法」列（人ごと）で分けています').setFontColor('#656d76');
+    tStart += methods.length + 4;
   }
   sh.getRange(tStart, 1).setValue('■ 月別の入金済み数（直近12ヶ月）').setFontWeight('bold');
   sh.getRange(tStart + 1, 1, 1, 3).setValues([['年月', '入金済み', '前月差']]).setFontWeight('bold').setBackground('#eef3fe');
@@ -1183,7 +1213,7 @@ function isStatusMode_(table) {
   return table.col.method !== undefined;
 }
 
-/** 数式に埋め込む、入金済みのステータスの配列 {"当月開始","入金あり","サブスク"} */
+/** 数式に埋め込む、入金済みのステータスの配列 {"入金あり","サブスク"} */
 function paidArray_() {
   return '{' + STATUS.paid.map(function (s) { return '"' + s + '"'; }).join(',') + '}';
 }
@@ -1339,7 +1369,7 @@ const APP_HTML_ = `<!doctype html>
   </form>
 
   <div id="pane-pay" style="display:none">
-    <div class="note" id="modeNote" style="display:none">20_受領管理はまだチェックボックス形式です。当月開始・入金あり・サブスクは「チェックあり」、それ以外は「チェックなし」として記録されます（支払方法・着金日は記録されません）。メニュー「ANNIN管理 → 受領管理をステータス形式に変換」を実行すると、ステータスのまま記録できます。</div>
+    <div class="note" id="modeNote" style="display:none">20_受領管理はまだチェックボックス形式です。入金あり・サブスクは「チェックあり」、それ以外は「チェックなし」として記録されます（支払方法・着金日は記録されません）。メニュー「ANNIN管理 → 受領管理をステータス形式に変換」を実行すると、ステータスのまま記録できます。</div>
     <div class="card">
       <h2>探して入力</h2>
       <div class="row">

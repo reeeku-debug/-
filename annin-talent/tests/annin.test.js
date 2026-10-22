@@ -408,12 +408,13 @@ test('受領管理をステータス形式に変換：チェック→ステー�
   // 見出しは11行目（上に集計9行＋空行1行）、開始年月の右に支払方法・着金日
   const H = 10; // 0-based
   assert.deepEqual(p.cells[H].slice(0, 13), ['ANNIN No.', '姓名', '所属事務所', '開始年月', '支払方法', '着金日', '2026/08', '2026/09', '2026/10', '2026/11', '入金月数', '最終入金月', '対象月チェック（ダッシュボードB4連動）']);
-  // 解約済みの人：チェックあり→当月開始・入金あり、チェックなし→空欄
-  assert.deepEqual(p.cells[H + 1].slice(6, 10), ['当月開始', '入金あり', '', '']);
+  // 解約済みの人：チェックあり→入金あり、チェックなし→空欄
+  assert.deepEqual(p.cells[H + 1].slice(6, 10), ['入金あり', '入金あり', '', '']);
   // 在籍中の人：開始月〜先月のチェックなし→未入金、今月以降→空欄
-  assert.deepEqual(p.cells[H + 2].slice(6, 10), ['当月開始', '未入金', '', '']);
+  assert.deepEqual(p.cells[H + 2].slice(6, 10), ['入金あり', '未入金', '', '']);
   assert.equal(res.counts['未入金'], 1);
-  assert.equal(res.counts['当月開始'], 2);
+  assert.equal(res.counts['入金あり'], 3);
+  assert.equal(res.counts['当月開始'], 0);
 
   // 台帳にだけいた No.3 を受領管理・個人情報に追加（開始年月は日付から "2026/10"）
   assert.deepEqual([...res.added], [3]);
@@ -425,13 +426,13 @@ test('受領管理をステータス形式に変換：チェック→ステー�
   // 上の集計行（ラベルは着金日の列、数式は月の列）
   assert.equal(p.cells[0][5], '入金済み計');
   assert.equal(p.cells[1][5], '当月開始');
-  assert.equal(p.formulasA1['1,7'], '=SUM(COUNTIF(G12:G,{"当月開始","入金あり","サブスク"}))');
+  assert.equal(p.formulasA1['1,7'], '=SUM(COUNTIF(G12:G,{"入金あり","サブスク"}))');
   assert.equal(p.formulasA1['2,7'], '=COUNTIF(G12:G,"当月開始")');
 
   // 行ごとの数式
-  assert.equal(p.formulasA1['12,11'], '=SUM(COUNTIF(G12:J12,{"当月開始","入金あり","サブスク"}))');
+  assert.equal(p.formulasA1['12,11'], '=SUM(COUNTIF(G12:J12,{"入金あり","サブスク"}))');
   assert.match(p.formulasA1['12,12'], /LOOKUP\(2,1\/ISNUMBER\(MATCH\(G12:J12,.*G\$11:J\$11/);
-  assert.equal(p.formulasA1['14,13'], "=IFERROR(ISNUMBER(MATCH(INDEX(G14:J14,MATCH('00_ダッシュボード'!$B$4,G$11:J$11,0)),{\"当月開始\",\"入金あり\",\"サブスク\"},0)),FALSE)");
+  assert.equal(p.formulasA1['14,13'], "=IFERROR(ISNUMBER(MATCH(INDEX(G14:J14,MATCH('00_ダッシュボード'!$B$4,G$11:J$11,0)),{\"入金あり\",\"サブスク\"},0)),FALSE)");
 
   // 台帳は ANNIN No. で探す数式に
   assert.equal(ss.ledger.formulasA1['2,9'], "=IFERROR(INDEX('20_受領管理'!$K:$K,MATCH($A2,'20_受領管理'!$A:$A,0)),0)");
@@ -440,7 +441,7 @@ test('受領管理をステータス形式に変換：チェック→ステー�
 
   // 50_月次推移
   assert.deepEqual(ss.trend.cells.slice(1, 5).map((r) => r[0]), ['2026/08', '2026/09', '2026/10', '2026/11']);
-  assert.equal(ss.trend.formulasA1['2,2'], "=COUNTIF('20_受領管理'!G12:G,TRUE)+SUM(COUNTIF('20_受領管理'!G12:G,{\"当月開始\",\"入金あり\",\"サブスク\"}))");
+  assert.equal(ss.trend.formulasA1['2,2'], "=COUNTIF('20_受領管理'!G12:G,TRUE)+SUM(COUNTIF('20_受領管理'!G12:G,{\"入金あり\",\"サブスク\"}))");
 
   Object.values(p.formulasA1).concat(Object.values(ss.ledger.formulasA1)).forEach(checkFormula);
   assert.throws(() => ctx.convertPaymentSheet_(ss), /すでにステータス形式/);
@@ -486,8 +487,16 @@ test('ステータス形式：ダッシュボードと12ヶ月の列追加', () 
   const dash = ss.sheets['01_入金ダッシュボード'];
   const calc = ss.sheets['_入金集計'];
   Object.values(dash.formulasA1).concat(Object.values(calc.formulasA1)).forEach(checkFormula);
-  assert.match(calc.formulasA1['2,9'], /ISNUMBER\(MATCH\(INDEX\('20_受領管理'!A12:M,0,MAX\(1,\$M\$5\)\),\{"当月開始","入金あり","サブスク"\},0\)\)/);
-  assert.match(dash.formulasA1['8,2'], /'_入金集計'!K2:K,"<>休止"/);
+  assert.match(calc.formulasA1['2,9'], /ISNUMBER\(MATCH\(INDEX\('20_受領管理'!A12:M,0,MAX\(1,\$M\$5\)\),\{"入金あり","サブスク"\},0\)\)/);
+  assert.match(dash.formulasA1['8,2'], /'_入金集計'!K2:K,"<>当月開始",'_入金集計'!K2:K,"<>休止"/);
+  assert.match(calc.formulasA1['2,14'], /TRIM\(TO_TEXT\('20_受領管理'!E12:E\)\)/);
+  // 支払方法別：振込×入金あり、未設定×サブスク、合計
+  const mRow = dash.cells.findIndex((r) => r && r[0] === '■ 支払方法別（対象月の入金済み）') + 1;
+  assert.deepEqual(dash.cells[mRow].slice(0, 4), ['支払方法', '入金あり', 'サブスク', '合計']);
+  assert.equal(dash.cells[mRow + 1][0], '振込');
+  assert.equal(dash.formulasA1[(mRow + 2) + ',2'], "=COUNTIFS('_入金集計'!K2:K,\"入金あり\",'_入金集計'!N2:N,\"振込\")");
+  assert.equal(dash.formulasA1[(mRow + 5) + ',3'], "=COUNTIFS('_入金集計'!K2:K,\"サブスク\",'_入金集計'!N2:N,\"\")");
+  assert.equal(dash.formulasA1[(mRow + 6) + ',4'], '=SUM(D' + (mRow + 2) + ':D' + (mRow + 5) + ')');
   assert.ok(dash.cells.some((r) => r && r[0] === '■ ステータス別（対象月）'));
 
   const added = ctx.addMonths_(ss, 12);
@@ -496,5 +505,5 @@ test('ステータス形式：ダッシュボードと12ヶ月の列追加', () 
   const hdr = ss.payment.cells[10];
   assert.deepEqual(hdr.slice(9, 12), ['2026/11', '2026/12', '2027/01']);
   assert.equal(hdr[22], '入金月数');
-  assert.equal(ss.payment.formulasA1['12,23'], '=SUM(COUNTIF(G12:V12,{"当月開始","入金あり","サブスク"}))');
+  assert.equal(ss.payment.formulasA1['12,23'], '=SUM(COUNTIF(G12:V12,{"入金あり","サブスク"}))');
 });
